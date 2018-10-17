@@ -2,11 +2,23 @@
 Utility functions
 """
 
+import functools
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 tfe = tf.contrib.eager
+
+def run_eagerly(func):
+    """
+    See https://stackoverflow.com/questions/50143896/both-eager-and-graph-execution-in-tensorflow-tests
+    """
+    @functools.wraps(func)
+    def eager_fun(*args, **kwargs):
+        with tf.Session() as sess:
+            sess.run(tfe.py_func(func, inp=list(kwargs.values()), Tout=[]))
+
+    return eager_fun
 
 # Tensor manipulation
 def extract_q_p(x):

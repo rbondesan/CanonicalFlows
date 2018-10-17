@@ -4,9 +4,8 @@ Tests for classes and functions in models
 
 import tensorflow as tf
 from models import *
-from utils import assert_equal, assert_allclose
+from utils import assert_equal, assert_allclose, run_eagerly
 
-tf.enable_eager_execution()
 DTYPE=tf.float32
 # TODO: Set random number generator for reproducibility
 
@@ -35,6 +34,7 @@ class TimesBijector(tf.keras.Model):
         return x/self.multiplier
 
 # Bijectors
+@run_eagerly
 def testNICE():
     x = tf.constant([1,2], shape=(1,2,1))
     model = NICE(tf.keras.layers.Lambda(lambda x: x))
@@ -47,9 +47,8 @@ def testNICE():
     # Test inverse
     inverted_y = model.inverse(y)
     assert_equal(x, inverted_y)
-    print('testNICE passed')
-testNICE()
 
+@run_eagerly
 def testSymplecticExchange():
     batch_size = 3
     phase_space_size = 2
@@ -66,9 +65,8 @@ def testSymplecticExchange():
     # Test inverse
     inverted_y = model.inverse(y)
     assert_equal(x, inverted_y)
-    print('testSymplecticExchange passed')
-testSymplecticExchange()
 
+@run_eagerly
 def testSqueezeAndShift():
     x = tf.constant([1.,2.], shape=(1,2,1))
     model = SqueezeAndShift(tf.keras.layers.Lambda(lambda x: x))
@@ -81,9 +79,8 @@ def testSqueezeAndShift():
     # Test inverse
     inverted_y = model.inverse(y)
     assert_equal(x, inverted_y)
-    print('testSqueezeAndShift passed')
-testSqueezeAndShift()
 
+@run_eagerly
 def testChain():
     batch_size = 3
     phase_space_size = 2
@@ -103,10 +100,8 @@ def testChain():
     inverted_y = model.inverse(y)
     assert_equal(x, inverted_y)
 
-    print('testChain passed')
-testChain()
-
 # Neural networks
+@run_eagerly
 def testMLP():
     batch_size = 3
     input_size = 7
@@ -121,18 +116,16 @@ def testMLP():
     model = MLP()
     out = model(input)
     assert(out.shape == input.shape)
-    print('testMLP passed')
-testMLP()
 
+@run_eagerly
 def testCNNShiftModel():
     model = CNNShiftModel()
     x = tf.ones([4,2,3])
     y = model(x)
     assert(y.shape == x.shape)
-    print('testCNNShiftModel passed')
-testCNNShiftModel()
 
 # Architectures
+@run_eagerly
 def testMultiScaleArchitecture():
     # Test:
     arch = MultiScaleArchitecture( [TimesTwoBijector() for i in range(3)] )
@@ -153,10 +146,9 @@ def testMultiScaleArchitecture():
     assert_equal(z, arch.inverse(arch(z)))
     x = tf.ones([batch,phase_space_dim,1], dtype=DTYPE)
     assert_equal(x, arch(arch.inverse(x)))
-    print('testMultiScaleArchitecture passed')
-testMultiScaleArchitecture()
 
 # System tests
+@run_eagerly
 def systemTestChain():
     # Test real case scenario:
     num_steps_flow = 4
@@ -171,9 +163,8 @@ def systemTestChain():
     assert_allclose(z, model.inverse(model(z)))
     x = tf.ones([batch,phase_space_dim,1], dtype=DTYPE)
     assert_allclose(z, model.inverse(model(z)))
-    print('systemTestChain passed')
-systemTestChain()
 
+@run_eagerly
 def systemTestMultiScaleArchitecture():
     # Test real case scenario:
     num_scales = 4
@@ -194,6 +185,4 @@ def systemTestMultiScaleArchitecture():
     tf.set_random_seed(1)   
     x = tf.random_normal([batch,phase_space_dim,1], dtype=DTYPE)
     assert_allclose(x, model(model.inverse(x)))
-    print('systemTestMultiScaleArchitecture passed')
-systemTestMultiScaleArchitecture()
 
