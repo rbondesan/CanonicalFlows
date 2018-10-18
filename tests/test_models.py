@@ -3,8 +3,11 @@ Tests for classes and functions in models
 """
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 from models import *
-from utils import assert_equal, assert_allclose, run_eagerly, is_symplectic
+from utils import assert_equal, assert_allclose, run_eagerly, is_symplectic, lattice_shift
+
+tfd = tfp.distributions
 
 DTYPE=tf.float32
 # TODO: Set random number generator for reproducibility
@@ -90,6 +93,17 @@ def testBijectorsAreSymplectic():
         model = bijector(shift_model=CNNShiftModel2())
         x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)
         assert(is_symplectic(model, x))
+
+@run_eagerly
+def testLatticeSymmetry():
+    phase_space_dim = 4
+    base_dist = tfd.MultivariateNormalDiag(loc=tf.zeros([phase_space_dim], DTYPE))
+    model = SqueezeAndShift(shift_model=CNNShiftModel2())
+    x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)  # q_1, p_1, q_2, p_2
+    z = tf.reshape(model.inverse(x), shape=[phase_space_dim])
+    x_shifted = lattice_shift(x)  # q_2, p_2, q_1, p_1
+    z_shifted = tf.reshape(model.inverse(x_shifted), shape=[phase_space_dim])
+    assert_allclose(base_dist.log_prob(z), base_dist.log_prob(z_shifted))
 
 @run_eagerly
 def testChain():
