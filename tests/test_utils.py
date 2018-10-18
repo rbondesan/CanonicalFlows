@@ -62,4 +62,5 @@ def test_is_symplectic():
     x = tf.reshape(tf.range(4, dtype=DTYPE), shape=(1,4,1))
     assert(is_symplectic(model, x))
 
+
 # TODO: add system_flow test?

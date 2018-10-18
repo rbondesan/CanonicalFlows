@@ -11,6 +11,7 @@ tfe = tf.contrib.eager
 
 def run_eagerly(func):
     """
+    Use eager execution in graph mode.
     See https://stackoverflow.com/questions/50143896/both-eager-and-graph-execution-in-tensorflow-tests
     """
     @functools.wraps(func)
@@ -64,7 +65,7 @@ def lattice_shift(x):
     return join_q_p(q_shifted, p_shifted)
 
 def is_symplectic(model, x):
-    """Test if model is simplectic at x. Assumes x has shape (1,2*n,1)"""
+    """Test if model is symplectic at x. Assumes x has shape (1,2*n,1)"""
     phase_space_dim = x.shape[1];
     with tf.GradientTape(persistent=True) as g:
         g.watch(x)

@@ -4,7 +4,7 @@ Tests for classes and functions in models
 
 import tensorflow as tf
 from models import *
-from utils import assert_equal, assert_allclose, run_eagerly
+from utils import assert_equal, assert_allclose, run_eagerly, is_symplectic
 
 DTYPE=tf.float32
 # TODO: Set random number generator for reproducibility
@@ -79,6 +79,17 @@ def testSqueezeAndShift():
     # Test inverse
     inverted_y = model.inverse(y)
     assert_equal(x, inverted_y)
+
+@run_eagerly
+def testBijectorsAreSymplectic():
+    phase_space_dim = 4
+
+    bijectors = [NICE, SqueezeAndShift]
+    for bijector in bijectors:
+
+        model = bijector(shift_model=CNNShiftModel2())
+        x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)
+        assert(is_symplectic(model, x))
 
 @run_eagerly
 def testChain():
