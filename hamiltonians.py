@@ -22,6 +22,16 @@ def pendulum_hamiltonian(x):
     q,p = extract_q_p(x)
     return 1/2 * tf.square(p) + tf.cos(q)
 
+# Integrable many particle
+def parameterized_neumann(ks):
+    def neumann_hamiltonian(x):
+        """1/4 \sum_{i,j}^N J_{ij}^2 + 1/2 \sum_{i=1}^N k_i q_i^2"""
+        assert (x.shape[2] == 1)
+        q, p = extract_q_p(x)
+        J = tf.einsum('bi,bj->bij', q, p)
+        return tf.einsum('bij,bji->b', J, J) / 4 + tf.einsum('bi,bi->b', ks, tf.square(q)) / 2
+    return neumann_hamiltonian
+
 # Chains
 def oscillator_hamiltonian(x):
     """Harmonic oscillator: 1/2 \sum_{i=1}^N p_i^2 + q_i^2
