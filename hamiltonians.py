@@ -27,9 +27,12 @@ def parameterized_neumann(ks):
     def neumann_hamiltonian(x):
         """1/4 \sum_{i,j}^N J_{ij}^2 + 1/2 \sum_{i=1}^N k_i q_i^2"""
         assert (x.shape[2] == 1)
+        k_vals = tf.reshape(ks, [1, -1, 1])
         q, p = extract_q_p(x)
-        J = tf.einsum('bi,bj->bij', q, p)
-        return tf.einsum('bij,bji->b', J, J) / 4 + tf.einsum('bi,bi->b', ks, tf.square(q)) / 2
+        J = tf.einsum('biz,bjz->bijz', q, p)
+        J -= tf.transpose(J, perm=[0,2,1,3])
+        h = tf.expand_dims(tf.reduce_sum(tf.square(J), axis=[1,2]), axis=1) / 4 + tf.reduce_sum(k_vals * tf.square(q), axis=1, keep_dims=True) / 2
+        return h
     return neumann_hamiltonian
 
 # Chains

@@ -14,9 +14,25 @@ def test_toy_hamiltonian():
     x = tf.constant([2.,3.], shape=(1,2,1))
     h = toy_hamiltonian(x)
     expected_h = tf.constant(1/2 * (2 - 1/4 * 3**2)**2 + 1/2 * 3**2 / 16)
+    print(expected_h.shape, h.shape)
     assert_equal(h, expected_h)
 
 # TODO: Test pendulum_hamiltonian
+
+@run_eagerly
+def test_parameterized_neumann():
+    N = 3
+    ks = tf.random_uniform([N])
+    neumann_hamiltonian = parameterized_neumann(ks)
+    x = tf.random_uniform([1, 2*N, 1])
+    h = neumann_hamiltonian(x)
+    q, p = tf.split(x[0,:,0], num_or_size_splits=2)
+    J = tf.einsum('i,j->ij', q, p)
+    J -= tf.transpose(J)
+    expected_h = tf.reduce_sum(tf.square(J)) / 4 + tf.reduce_sum(ks * tf.square(q)) / 2
+    print(h, expected_h)
+    assert_equal(h, expected_h)
+
 
 @run_eagerly
 def test_henon_heiles_hamiltonian():
