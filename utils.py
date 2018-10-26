@@ -34,7 +34,7 @@ def join_q_p(q, p):
     #assert(q.shape == p.shape)
     #assert(q.shape[2] == 1)
     q_shape = q.shape
-    return tf.reshape(tf.concat([q, p], 2), [q_shape[0],2*q_shape[1],1])
+    return tf.reshape(tf.concat([q, p], 2), [-1, 2*q_shape[1], 1])
 
 def split(x):
     """Split into two halves along the phase space dimension, returning z1,z2"""

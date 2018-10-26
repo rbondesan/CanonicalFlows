@@ -26,7 +26,8 @@ def test_parameterized_neumann():
     neumann_hamiltonian = parameterized_neumann(ks)
     x = tf.random_uniform([1, 2*N, 1])
     h = neumann_hamiltonian(x)
-    q, p = tf.split(x[0,:,0], num_or_size_splits=2)
+    q = x[0,::2,0]
+    p = x[0, 1::2, 0]
     J = tf.einsum('i,j->ij', q, p)
     J -= tf.transpose(J)
     expected_h = tf.reduce_sum(tf.square(J)) / 4 + tf.reduce_sum(ks * tf.square(q)) / 2
