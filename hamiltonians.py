@@ -32,7 +32,7 @@ def parameterized_neumann(ks):
         J = tf.einsum('biz,bjz->bijz', q, p)
         J -= tf.transpose(J, perm=[0,2,1,3])
         h = tf.expand_dims(tf.reduce_sum(tf.square(J), axis=[1,2]), axis=1) / 4
-        h += tf.reduce_sum(k_vals * tf.square(q), axis=1, keep_dims=True) / 2
+        h += tf.reduce_sum(k_vals * tf.square(q), axis=1, keepdims=True) / 2
         return h
     return neumann_hamiltonian
 
