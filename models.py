@@ -128,6 +128,33 @@ class MLP(tf.keras.Model):
     def call(self, x):
         return self.call_strategy(x)
 
+class IrrotationalMLP(tf.keras.Model):
+    """NN for irrotational vector field. Impose the symmetry at the level of weights of MLP."""
+    def __init__(self):
+        super(IrrotationalMLP, self).__init__()
+        d = 512
+        # Weights
+        shape = (1,d)
+        self.W1 = tfe.Variable(tf.keras.initializers.glorot_normal()(shape), name="W1")
+        shape = (d,)
+        self.W2 = tfe.Variable(tf.keras.initializers.glorot_normal()(shape), name="W2")
+        # Bias
+        shape = (d,)
+        self.b1 = tfe.Variable(tf.zeros(shape), name="b1")
+        shape = (d,)
+        self.b2 = tfe.Variable(tf.zeros(shape), name="b2")
+        shape = (1,)
+        self.b3 = tfe.Variable(tf.zeros(shape), name="b3")
+        self.act = tf.nn.relu;
+
+    def call(self, x):
+        # Remove the channel dim
+        x = tf.reshape(x, [x.shape[0], x.shape[1]])
+        x = self.act( tf.matmul(x, self.W1) + self.b1 ) # x.shape = (batch, d)
+        x = self.act( tf.multiply(self.W2, x) + self.b2 ) # x.shape = (batch, d)
+        x = tf.matmul(x, self.W1, transpose_b=True) + self.b3  # x.shape = (batch, 1)
+        return tf.expand_dims(x, 1)
+
 class CNNShiftModel(tf.keras.Model):
     def __init__(self):
         super(CNNShiftModel, self).__init__()
