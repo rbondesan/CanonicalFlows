@@ -84,10 +84,10 @@ def testSqueezeAndShift():
     assert_equal(x, inverted_y)
 
 @run_eagerly
-def testMLPWithoutGradientGivesSymplectic():
+def testIrrotationalMLPGivesSymplectic():
     phase_space_dim = 4
 
-    model = SqueezeAndShift(shift_model=MLP(return_gradient=False))
+    model = SqueezeAndShift(shift_model=IrrotationalMLP())
     x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)
     assert(is_symplectic(model, x))
 
