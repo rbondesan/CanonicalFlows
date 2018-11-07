@@ -84,22 +84,6 @@ def testSqueezeAndShift():
     assert_equal(x, inverted_y)
 
 @run_eagerly
-def testMLPWithoutGradientGivesSymplectic():
-    phase_space_dim = 4
-
-    model = SqueezeAndShift(shift_model=MLP(return_gradient=False))
-    x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)
-    assert(is_symplectic(model, x))
-
-@run_eagerly
-def testMLPWithGradientGivesSymplectic():
-    phase_space_dim = 4
-
-    model = SqueezeAndShift(shift_model=MLP(return_gradient=True))
-    x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)
-    assert(is_symplectic(model, x))
-
-@run_eagerly
 def testBijectorsAreSymplectic():
     phase_space_dim = 4
 
@@ -148,15 +132,31 @@ def testMLP():
     input_size = 7
     input = tf.ones([batch_size, input_size, 1])
 
-    # Test default: return_gradient and activation=elu.
+    # Test default: return_gradient and activation=relu.
     model = MLP()
     out = model(input)
     assert(out.shape == input.shape)
 
     # Test default: return_gradient = false
-    model = MLP()
+    model = MLP(return_gradient=False)
     out = model(input)
     assert(out.shape == input.shape)
+
+@run_eagerly
+def testMLPWithoutGradientGivesSymplectic():
+    phase_space_dim = 4
+
+    model = SqueezeAndShift(shift_model=MLP(return_gradient=False))
+    x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)
+    assert(is_symplectic(model, x))
+
+@run_eagerly
+def testMLPWithGradientGivesSymplectic():
+    phase_space_dim = 4
+
+    model = SqueezeAndShift(shift_model=MLP(return_gradient=True))
+    x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)
+    assert(is_symplectic(model, x))
 
 @run_eagerly
 def testCNNShiftModel():
