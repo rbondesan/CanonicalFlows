@@ -132,28 +132,28 @@ class IrrotationalMLP(tf.keras.Model):
     """NN for irrotational vector field. Impose the symmetry at the level of weights of MLP."""
     def __init__(self):
         super(IrrotationalMLP, self).__init__()
-        d = 512
-        # Weights
-        shape = (1,d)
-        self.W1 = tfe.Variable(tf.keras.initializers.glorot_normal()(shape), name="W1")
-        shape = (d,)
+        self.width = 512
+        # Internal Weights (diagonal matrix)
+        shape = (self.width,)
         self.W2 = tfe.Variable(tf.keras.initializers.glorot_normal()(shape), name="W2")
         # Bias
-        shape = (d,)
         self.b1 = tfe.Variable(tf.zeros(shape), name="b1")
-        shape = (d,)
         self.b2 = tfe.Variable(tf.zeros(shape), name="b2")
-        shape = (1,)
-        self.b3 = tfe.Variable(tf.zeros(shape), name="b3")
-        self.act = tf.nn.relu;
+        self.act = tf.nn.relu
+
+    def build(self, input_shape):
+        input_shape = input_shape.as_list()
+        input_dimension = input_shape[1] * input_shape[2]
+        self.W1 = tfe.Variable(tf.keras.initializers.glorot_normal()((input_dimension, self.width)), name="W2")
+        self.b3 = tfe.Variable(tf.zeros((input_dimension,)), name="b3")
 
     def call(self, x):
         # Remove the channel dim
-        x = tf.reshape(x, [x.shape[0], x.shape[1]])
-        x = self.act( tf.matmul(x, self.W1) + self.b1 ) # x.shape = (batch, d)
-        x = self.act( tf.multiply(self.W2, x) + self.b2 ) # x.shape = (batch, d)
+        x = tf.reshape(x, [-1, x.shape[1] * x.shape[2]])
+        x = self.act(tf.matmul(x, self.W1) + self.b1) # x.shape = (batch, d)
+        x = self.act(tf.multiply(self.W2, x) + self.b2) # x.shape = (batch, d)
         x = tf.matmul(x, self.W1, transpose_b=True) + self.b3  # x.shape = (batch, 1)
-        return tf.expand_dims(x, 1)
+        return tf.expand_dims(x, -1)
 
 class CNNShiftModel(tf.keras.Model):
     def __init__(self):
