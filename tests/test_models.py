@@ -67,7 +67,17 @@ def testSymplecticExchange():
 
     # Test inverse
     inverted_y = model.inverse(y)
-    assert_equal(x, inverted_y)
+
+@run_eagerly
+def testLinearSymplecticTwoByTwo():
+    batch_size = 3
+    phase_space_dim = 4
+    x = tf.random_normal((batch_size, phase_space_dim, 1), dtype=DTYPE)
+    # Test call
+    model = LinearSymplecticTwoByTwo()
+    y = model(x)
+    z = model.inverse(y)
+    assert_equal(x, z)
 
 @run_eagerly
 def testSqueezeAndShift():

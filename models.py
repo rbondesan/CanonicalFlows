@@ -38,6 +38,31 @@ class SymplecticExchange(tf.keras.Model):
         q,p = extract_q_p(x)
         return join_q_p(-p,q)
 
+class LinearSymplecticTwoByTwo(tf.keras.Model):
+    def __init__(self):
+        super(LinearSymplecticTwoByTwo, self).__init__()
+
+    def build(self, input_size):
+        dof = input_size[1] // 2
+        x1 = tf.Variable(tf.ones([dof, 1, 1]), name="x1")
+        x2 = tf.Variable(tf.zeros([dof, 1, 1]), name="x2")
+        x3 = tf.Variable(tf.zeros([dof, 1, 1]), name="x3")
+        x4 = (1 + x2 * x3) / x1
+        self.S = tf.concat([tf.concat([x1, x2], axis=2), tf.concat([x3, x4], axis=2)], axis=1)
+        self.inverse_S = tf.concat([tf.concat([x4, -x2], axis=2), tf.concat([-x3, x1], axis=2)], axis=1)
+
+    def call(self, x):
+        q, p = extract_q_p(x)
+        x = tf.concat([q, p], 2)
+        res = tf.einsum('abc,dac->dab', self.S, x)
+        return tf.reshape(res, shape=[-1, 2*q.shape[1], 1])
+
+    def inverse(self, x):
+        q, p = extract_q_p(x)
+        x = tf.concat([q, p], 2)
+        res = tf.einsum('abc,dac->dab', self.inverse_S, x)
+        return tf.reshape(res, shape=[-1, 2*q.shape[1], 1])
+
 class SqueezeAndShift(tf.keras.Model):
     def __init__(self, shift_model):
         """q,p -> q * e^s , e^(-s) * (p + shift_model(q)).
