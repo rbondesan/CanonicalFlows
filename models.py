@@ -45,12 +45,11 @@ class SqueezeAndShift(tf.keras.Model):
         super(SqueezeAndShift, self).__init__()
         self._shift_model = shift_model
         # scale is a scalar for lattice shift covariance.
-        self.scale = tfe.Variable(tf.zeros([1]), name="scale")
+        # self.scale = tfe.Variable(tf.zeros([1]), name="scale")
 
-    # def build(self, input_size):
-    #     # Initialize scale to zeros
-    #     self.scale = tfe.Variable(tf.zeros([input_size[1]//2, input_size[2]]),
-    #         name="scale")
+    def build(self, input_size):
+        # Initialize scale to zeros
+        self.scale = tfe.Variable(tf.zeros([1, input_size[1]//2, input_size[2]]), name="scale")
 
     def call(self, x):
         q,p = extract_q_p(x)
@@ -130,21 +129,22 @@ class MLP(tf.keras.Model):
 
 class IrrotationalMLP(tf.keras.Model):
     """NN for irrotational vector field. Impose the symmetry at the level of weights of MLP."""
-    def __init__(self):
+    def __init__(self, activation=tf.nn.relu, width=512):
         super(IrrotationalMLP, self).__init__()
-        self.width = 512
+        self.width = width
         # Internal Weights (diagonal matrix)
         shape = (self.width,)
         self.W2 = tfe.Variable(tf.keras.initializers.glorot_normal()(shape), name="W2")
         # Bias
-        self.b1 = tfe.Variable(tf.zeros(shape), name="b1")
-        self.b2 = tfe.Variable(tf.zeros(shape), name="b2")
-        self.act = tf.nn.relu
+        self.b1 = tfe.Variable(tf.keras.initializers.glorot_normal()(shape), name="b1")
+        self.b2 = tfe.Variable(tf.keras.initializers.glorot_normal()(shape), name="b2")
+        self.act = activation
 
     def build(self, input_shape):
         input_shape = input_shape.as_list()
         input_dimension = input_shape[1] * input_shape[2]
-        self.W1 = tfe.Variable(tf.keras.initializers.glorot_normal()((input_dimension, self.width)), name="W2")
+        # Zero initialization guarantees we start from identity bijection.
+        self.W1 = tfe.Variable(tf.zeros((input_dimension, self.width)), name="W1")
         self.b3 = tfe.Variable(tf.zeros((input_dimension,)), name="b3")
 
     def call(self, x):
