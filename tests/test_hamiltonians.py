@@ -31,9 +31,19 @@ def test_parameterized_neumann():
     J = tf.einsum('i,j->ij', q, p)
     J -= tf.transpose(J)
     expected_h = tf.reduce_sum(tf.square(J)) / 4 + tf.reduce_sum(ks * tf.square(q)) / 2
-    print(h, expected_h)
     assert_equal(h, expected_h)
 
+@run_eagerly
+def test_parameterized_oscillator():
+    N = 3
+    ks = tf.random_uniform([N])
+    oscillator_hamiltonian = parameterized_oscillator(ks)
+    x = tf.random_uniform([1, 2*N, 1])
+    h = oscillator_hamiltonian(x)
+    q = x[0,::2,0]
+    p = x[0, 1::2, 0]
+    expected_h = tf.reduce_sum(tf.square(p) + ks * tf.square(q)) / 2
+    assert_equal(h, expected_h)
 
 @run_eagerly
 def test_henon_heiles_hamiltonian():
@@ -45,13 +55,6 @@ def test_henon_heiles_hamiltonian():
     a, b, c, d = .2, .3, .4, .5
     h = henon_heiles_hamiltonian(x, a=a, b=b, c=c, d=d)
     expected_h = tf.constant(1/2 * (2**2 + 4**2 + a*1 + b*3**2) + d*1*3 - 1/3 *c* 3**3)
-    assert_equal(h, expected_h)
-
-@run_eagerly
-def test_oscillator_hamiltonian():
-    x = tf.reshape(tf.range(1,5,dtype=DTYPE),[1,4,1]) # q = [1,2], p=[3,4]
-    h = oscillator_hamiltonian(x)
-    expected_h = tf.constant(1/2 * (9 + 16 + 1 + 4), dtype=DTYPE)
     assert_equal(h, expected_h)
 
 @run_eagerly

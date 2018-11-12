@@ -78,7 +78,6 @@ def testLinearSymplecticTwoByTwo():
     y = model(x)
     # Test inverse
     z = model.inverse(y)
-    print(model.S)
     assert_allclose(x, z)
     # Test symplectic
     x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)

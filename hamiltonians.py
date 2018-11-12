@@ -36,15 +36,18 @@ def parameterized_neumann(ks):
         return h
     return neumann_hamiltonian
 
-# Chains
-def oscillator_hamiltonian(x):
-    """Harmonic oscillator: 1/2 \sum_{i=1}^N p_i^2 + q_i^2
-    x.shape = (batch, phase_space, 1)
-    """
-    assert(x.shape[2] == 1)
-    q, p = extract_q_p(x)
-    return 0.5 * tf.reduce_sum(tf.square(p) + tf.square(q),  axis=1)
+def parameterized_oscillator(ks):
+    def oscillator_hamiltonian(x):
+        """Harmonic oscillator: 1/2 \sum_{i=1}^N p_i^2 + k_i q_i^2
+        x.shape = (batch, phase_space, 1)
+        """
+        assert(x.shape[2] == 1)
+        k_vals = tf.reshape(ks, [1, -1, 1])
+        q, p = extract_q_p(x)
+        return 0.5 * tf.reduce_sum(tf.square(p) + k_vals * tf.square(q),  axis=1)
+    return oscillator_hamiltonian
 
+# Chains
 def oscillator_diff_hamiltonian(x):
     """Harmonic oscillator: 1/2 \sum_{i=1}^N p_i^2 + q_i^2
     x.shape = (batch, phase_space, 1)
