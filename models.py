@@ -39,17 +39,28 @@ class SymplecticExchange(tf.keras.Model):
         return join_q_p(-p,q)
 
 class LinearSymplecticTwoByTwo(tf.keras.Model):
-    def __init__(self):
+    def __init__(self, rand_init=False):
         super(LinearSymplecticTwoByTwo, self).__init__()
+        self.rand_init = rand_init
 
     def build(self, input_size):
+        """Initialize to identity or random"""
+        input_size = input_size.as_list()
         dof = input_size[1] // 2
-        x1 = tf.Variable(tf.ones([dof, 1, 1]), name="x1")
-        x2 = tf.Variable(tf.zeros([dof, 1, 1]), name="x2")
-        x3 = tf.Variable(tf.zeros([dof, 1, 1]), name="x3")
-        x4 = (1 + x2 * x3) / x1
-        self.S = tf.concat([tf.concat([x1, x2], axis=2), tf.concat([x3, x4], axis=2)], axis=1)
-        self.inverse_S = tf.concat([tf.concat([x4, -x2], axis=2), tf.concat([-x3, x1], axis=2)], axis=1)
+        s_shape = [dof, 1, 1]
+        if self.rand_init:
+            s1_init = tf.keras.initializers.glorot_normal()(s_shape)
+            s2_init = tf.keras.initializers.glorot_normal()(s_shape)
+            s3_init = tf.keras.initializers.glorot_normal()(s_shape)
+        else:
+            s1_init = tf.ones([dof, 1, 1])
+            s2_init = s3_init = tf.zeros([dof, 1, 1])
+        s1 = tf.Variable(s1_init, name="s1")
+        s2 = tf.Variable(s2_init, name="s2")
+        s3 = tf.Variable(s3_init, name="s3")
+        s4 = (1 + s2 * s3) / s1
+        self.S = tf.concat([tf.concat([s1, s2], axis=2), tf.concat([s3, s4], axis=2)], axis=1)
+        self.inverse_S = tf.concat([tf.concat([s4, -s2], axis=2), tf.concat([-s3, s1], axis=2)], axis=1)
 
     def call(self, x):
         q, p = extract_q_p(x)

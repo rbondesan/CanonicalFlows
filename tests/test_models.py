@@ -74,10 +74,15 @@ def testLinearSymplecticTwoByTwo():
     phase_space_dim = 4
     x = tf.random_normal((batch_size, phase_space_dim, 1), dtype=DTYPE)
     # Test call
-    model = LinearSymplecticTwoByTwo()
+    model = LinearSymplecticTwoByTwo(rand_init=True)
     y = model(x)
+    # Test inverse
     z = model.inverse(y)
-    assert_equal(x, z)
+    print(model.S)
+    assert_allclose(x, z)
+    # Test symplectic
+    x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)
+    assert(is_symplectic(model, x))
 
 @run_eagerly
 def testSqueezeAndShift():
