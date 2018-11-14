@@ -66,23 +66,18 @@ def diff_square_hamiltonian(x):
     qdiff = q - tf.manip.roll(q, shift=-1, axis=1) # q - (q_2, q_3, ..., q_{N}, q_1)
     return 0.5 * tf.reduce_sum(tf.square(p) + tf.square(qdiff),  axis=1)
 
-def fpu_alpha_hamiltonian(x):
-    """\sum_{i=1}^N 1/2 [p_i^2 + (q_{i} - q_{i+1})^2] + 1/3 (q_{i} - q_{i+1})^3
+def fpu_hamiltonian(x, alpha=1, beta=0):
+    """\sum_{i=1}^N 1/2 [p_i^2 + (q_{i} - q_{i+1})^2] + \alpha/3 (q_{i} - q_{i+1})^3 + \beta/4 (q_{i} - q_{i+1})^4
     (with q_{N+1} = q_1). x.shape = (batch, phase_space, 1)
     """
     assert(x.shape[2] == 1)
     q, p = extract_q_p(x)
     qdiff = q - tf.manip.roll(q, shift=-1, axis=1) # q - (q_2, q_3, ..., q_{N}, q_1)
-    return tf.reduce_sum(0.5 * tf.square(p) + 0.5 * tf.square(qdiff) + 1/3. * tf.pow(qdiff, 3),  axis=1)
+    h = tf.reduce_sum(0.5 * tf.square(p) + 0.5 * tf.square(qdiff)
+                      + alpha / 3. * tf.pow(qdiff, 3)
+                      + beta / 4. * tf.pow(qdiff, 4),  axis=1)
+    return h
 
-def fpu_beta_hamiltonian(x):
-    """\sum_{i=1}^N 1/2 [p_i^2 + (q_{i} - q_{i+1})^2] + 1/4 (q_{i} - q_{i+1})^4
-    (with q_{N+1} = q_1) x.shape = (batch, phase_space, 1)
-    """
-    assert(x.shape[2] == 1)
-    q, p = extract_q_p(x)
-    qdiff = q - tf.manip.roll(q, shift=-1, axis=1) # q - (q_2, q_3, ..., q_{N}, q_1)
-    return tf.reduce_sum(0.5 * tf.square(p) + 0.5 * tf.square(qdiff) + 1/4. * tf.pow(qdiff, 4),  axis=1)
 
 def toda_hamiltonian(x):
     """Toda lattice: 1/2 \sum_{i=1}^N  [p_i^2 + exp^{q_{i} - q_{i+1}}] (with q_{N+1} = q_1)

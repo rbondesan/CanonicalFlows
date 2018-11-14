@@ -14,7 +14,6 @@ def test_toy_hamiltonian():
     x = tf.constant([2.,3.], shape=(1,2,1))
     h = toy_hamiltonian(x)
     expected_h = tf.constant(1/2 * (2 - 1/4 * 3**2)**2 + 1/2 * 3**2 / 16)
-    print(expected_h.shape, h.shape)
     assert_equal(h, expected_h)
 
 # TODO: Test pendulum_hamiltonian
@@ -68,14 +67,14 @@ def test_diff_square_hamiltonian():
 @run_eagerly
 def test_fpu_alpha_hamiltonian():
     x = tf.reshape(tf.range(1,7,dtype=DTYPE),[1,6,1]) # q = [1,3,5], p=[2,4,6]
-    h = fpu_alpha_hamiltonian(x)
+    h = fpu_hamiltonian(x)
     expected_h = tf.constant(1/2 * (4 + 16 + 36 + 4 + 4 + 16) + 1/3 * (- 8 - 8 + 64), dtype=DTYPE)
     assert_equal(h, expected_h)
 
 @run_eagerly
 def test_fpu_beta_hamiltonian():
     x = tf.reshape(tf.range(1,7,dtype=DTYPE),[1,6,1]) # q = [1,3,5], p=[2,4,6]
-    h = fpu_beta_hamiltonian(x)
+    h = fpu_hamiltonian(x, alpha=0, beta=1)
     expected_h = tf.constant(1/2 * (4 + 16 + 36 + 4 + 4 + 16) + 1/4 * (16 + 16 + 4**4), dtype=DTYPE)
     assert_equal(h, expected_h)
 

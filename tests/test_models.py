@@ -101,7 +101,7 @@ def testSqueezeAndShift():
 def testIrrotationalMLPGivesSymplectic():
     phase_space_dim = 4
 
-    model = SqueezeAndShift(shift_model=IrrotationalMLP())
+    model = SqueezeAndShift(shift_model=IrrotationalMLP(rand_init=True))
     x = tf.random_normal((1, phase_space_dim, 1), dtype=DTYPE)
     assert(is_symplectic(model, x))
 

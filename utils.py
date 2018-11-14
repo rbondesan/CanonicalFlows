@@ -192,3 +192,19 @@ def euler(q0, p0, f, g, N, h):
         psol[n + 1,:] = psol[n,:] + h * f(qsol[n,:],psol[n,:])
         qsol[n + 1,:] = qsol[n,:] + h * g(qsol[n,:],psol[n,:])
     return qsol, psol
+
+def hamiltons_equations(H):
+    """Obtain Hamilton's equations by autodiff, assuming phase space point in format [q0,p0,q1,p1,...]"""
+    def flow(phase_space_point, t):
+        phase_space_point = tf.reshape(phase_space_point, [1,-1,1])
+        H_grads = tf.gradients(H(phase_space_point), phase_space_point)[0]
+        dHdq, dHdp = extract_q_p(H_grads)
+        flow_vec = join_q_p(dHdp, -dHdq)
+        return flow_vec[0,:,0]
+    return flow
+
+def hamiltonian_traj(H, init_state, time=100, steps=200, rtol=1e-04, atol=1e-6):
+    """Integrate Hamilton's equations using TF, given initial phase space point"""
+    t = tf.linspace(0.0, time, num=steps)
+    tensor_state = tf.contrib.integrate.odeint(hamiltons_equations(H), init_state, t, rtol, atol)
+    return tensor_state
