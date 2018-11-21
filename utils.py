@@ -17,19 +17,24 @@ NP_DTYPE=np.float32
 # Tensor manipulation
 def extract_q_p(x):
     """split along the channel axis: q = x[...,0], p = x[...,1]"""
-    assert x.shape[-1] == 2, "x.shape = {}".format(x.shape)
+    tf.assert_equal(tf.shape(x)[-1], tf.constant(2))
     # Use :: to keep number of dimensions
     return x[...,::2], x[...,1::2]
 
 def join_q_p(q, p):
     """join q,p along channel axis"""
-    assert q.shape == p.shape, "q.shape = {}, p.shape = {}".format(q.shape,p.shape)
-    assert q.shape[-1] == 1, "shape = {}".format(q.shape)
+    tf.assert_equal(tf.shape(q), tf.shape(p))
+    tf.assert_equal(tf.shape(q)[-1], tf.constant(1))
     return tf.concat([q, p], -1)
 
 def get_phase_space_dim(sh):
     """sh = (N,n1,n2,...,nd,2) -> n1 * n2 * ... * nd * 2"""
     return tf.reduce_prod(sh[1:])
+
+def int_shape(x):
+    if str(x.get_shape()[0]) != '?':
+        return list(map(int, x.get_shape()))
+    return [-1]+list(map(int, x.get_shape()[1:]))
 
 # TODO: update
 # def split(x):
@@ -80,6 +85,33 @@ class BaseDistributionNormal():
 
     def sample(self, N):
         return self.base_dist_z.sample(N)
+
+class BaseDistributionIntegralsOfMotion():
+    def __init__(self, settings):
+        """In the integrals of motion basis and their conjugate (F,psi), we
+        can choose F_1 = H, so that the distribution is exponential for the first
+        "momentum" variable and uniform for all the others. Here use standard
+        normalization as the ranges will be learnt as part of the
+        base-distribution-sampler part of the model"""
+        # F
+        self.base_dist_F1 = tfd.Exponential(rate=1.)
+        sh = (settings['d'] * settings['num_particles'] - 1,)
+        self.base_dist_otherF = tfd.Independent(tfd.Uniform(low=tf.zeros(sh, DTYPE),
+                                                            high=2*np.pi*tf.ones(sh, DTYPE)),
+                                                reinterpreted_batch_ndims=len(sh))
+        # Psi
+        self.sh = [settings['d'], settings['num_particles'], 1]
+        self.base_dist_Psi = tfd.Independent(tfd.Uniform(low=tf.zeros(self.sh, DTYPE),
+                                                         high=tf.ones(self.sh, DTYPE)),
+                                             reinterpreted_batch_ndims=len(self.sh))
+
+    def sample(self, N):
+        F1 = tf.reshape(self.base_dist_F1.sample(N), shape=[N,1]) # sh = [N,1]
+        otherF = self.base_dist_otherF.sample(N)  # sh = [N,d*n-1]
+        F = tf.concat([F1, otherF], 1)       # sh = [N,d*n]
+        F = tf.reshape(F, shape=[N]+self.sh) # sh = [N,d,n,1]
+        Psi = self.base_dist_Psi.sample(N)
+        return join_q_p(Psi, F)
 
 # TODO: update
 # Symmetry utils
@@ -165,30 +197,42 @@ def run_eagerly(func):
     return eager_fun
 
 # TODO: update
-# # Visualization
-# def visualize_chain_bijector_1d(model, x):
-#     """Assumes eager mode"""
-#     samples = [x]
-#     names = ["base_dist"]
-#     for bijector in model.bijectors:
-#         x = bijector(x)
-#         samples.append(x)
-#         names.append(bijector.name)
-#     f, arr = plt.subplots(1, len(samples), figsize=(4 * (len(samples)), 4))
-#     X0 = tf.reshape(samples[0].numpy(), shape=(samples[0].shape[0], 2))
-#     for i in range(len(samples)):
-#         X1 = tf.reshape(samples[i].numpy(), shape=(samples[0].shape[0], 2)).numpy()
-#         idx = np.logical_and(X0[:, 0] < 0, X0[:, 1] < 0)
-#         arr[i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='red')
-#         idx = np.logical_and(X0[:, 0] > 0, X0[:, 1] < 0)
-#         arr[i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='green')
-#         idx = np.logical_and(X0[:, 0] < 0, X0[:, 1] > 0)
-#         arr[i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='blue')
-#         idx = np.logical_and(X0[:, 0] > 0, X0[:, 1] > 0)
-#         arr[i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='black')
-#         arr[i].set_xlim([-10, 10])
-#         arr[i].set_ylim([-10, 10])
-#         arr[i].set_title(names[i])
+# Visualization
+def visualize_chain_bijector_1d(model, x, sess=None):
+    """Assumes eager mode"""
+    if tf.executing_eagerly():
+        samples = [x]
+    else:
+        samples = [sess.run(x)]
+    names = ["base_dist"]
+    for bijector in model.bijectors:
+        x = bijector(x)
+        if tf.executing_eagerly():
+            samples.append(x)
+        else:
+            samples.append(sess.run(x))
+        names.append(bijector.name)
+    f, arr = plt.subplots(1, len(samples), figsize=(4 * (len(samples)), 4))
+    if tf.executing_eagerly():
+        X0 = tf.reshape(samples[0].numpy(), shape=(samples[0].shape[0], 2))
+    else:
+        X0 = np.reshape(samples[0], (samples[0].shape[0], 2))
+    for i in range(len(samples)):
+        if tf.executing_eagerly():
+            X1 = tf.reshape(samples[i].numpy(), shape=(samples[0].shape[0], 2))
+        else:
+            X1 = np.reshape(samples[i], (samples[0].shape[0], 2))
+        idx = np.logical_and(X0[:, 0] < 0, X0[:, 1] < 0)
+        arr[i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='red', alpha=.25)
+        idx = np.logical_and(X0[:, 0] > 0, X0[:, 1] < 0)
+        arr[i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='green', alpha=.25)
+        idx = np.logical_and(X0[:, 0] < 0, X0[:, 1] > 0)
+        arr[i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='blue', alpha=.25)
+        idx = np.logical_and(X0[:, 0] > 0, X0[:, 1] > 0)
+        arr[i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='black', alpha=.25)
+#        arr[i].set_xlim([-10, 10])
+#        arr[i].set_ylim([-10, 10])
+        arr[i].set_title(names[i])
 
 # Observables
 def compute_frequencies(f, I, prior):
@@ -207,20 +251,36 @@ def system_flow(q0, p0, T, f, ts, prior='exponential'):
     """Computes the system flow:
     phi_t(Q_0,P_0) = T( phi_t^Integrable( T.inverse(Q_0,P_0) ) )
     for t in ts. t is in the batch dimension. ts has shape (N,) """
-    # Map to I0, phi0
-    phi0, I0 = extract_q_p( T.inverse( join_q_p(q0,p0) ) )
-
-    # Compute frequencies in action-angle vars
-    omega = compute_frequencies(f, I0, prior)
-    print("Frequencies: ", omega)
-
-    # Motion in action-angle variables
+    # Map to Q0, P0
+    Q0, P0 = extract_q_p( T.inverse( join_q_p(q0,p0) ) )
+    if prior == 'exponential' or prior == 'normal':
+        # Compute frequencies in action-angle vars
+        omega = compute_frequencies(f, P0, prior)
+    elif prior == 'integrals_of_motion':
+        # Here H = P_1, frequencies are trivial. Note the indexing
+        # of the first component depends on that done in
+        # BaseDistributionIntegralsOfMotion
+        exp_minus_alpha1 = tf.reshape(tf.exp( - f.log_scale[0,0,0] ), (1,))
+        sh = Q0.shape.as_list()
+        omega = tf.concat([exp_minus_alpha1, tf.zeros(np.prod(sh)-1)],0)
+        omega = tf.reshape(omega, sh)
+    else:
+        raise NotImplementedError
+    # Motion in action angle variables
     sh = [ts.shape.as_list()[0], 1, 1, 1]
-    Is = tf.tile(I0, sh)
-    phis = phi0 + omega * tf.reshape(ts, sh)
-
+    Ps = tf.tile(P0, sh)
+    Qs = Q0 + omega * tf.reshape(ts, sh)
     # Map back to original coordinates:
-    return extract_q_p( T( join_q_p(phis, Is) ) )
+    qs, ps = extract_q_p( T( join_q_p(Qs, Ps) ) )
+    return qs, ps, omega
+
+def grad(f, vars):
+    """Compute grad f(vars). vars is list"""
+    # Branch code for eager vs lazy
+    if tf.executing_eagerly():
+        return tfe.gradients_function(f)(*vars)
+    else:
+        return tf.gradients(f(*vars), vars)
 
 # Integrators
 def euler(q0, p0, f, g, N, h):
@@ -235,3 +295,34 @@ def euler(q0, p0, f, g, N, h):
         psol[n + 1,:] = psol[n,:] + h * f(qsol[n,:],psol[n,:])
         qsol[n + 1,:] = qsol[n,:] + h * g(qsol[n,:],psol[n,:])
     return qsol, psol
+
+# TODO:
+# 1. use the appropriate extract/join ops (DONE)
+# 2. refactor to improve syntax, e.g. remove t1,x1 from rk4_step
+
+# Define the solver step
+def rk4_step(f, t, x, eps):
+    k1 = f(t, x)
+    k2 = f(t + eps/2, x + eps*k1/2)
+    k3 = f(t + eps/2, x + eps*k2/2)
+    k4 = f(t + eps, x + eps*k3)
+    return eps/6 * (k1 + k2*2 + k3*2 + k4)
+
+# Define the initial condition
+def init_state(x,t,x0,t0):
+    return tf.group(tf.assign(x, x0),
+                    tf.assign(t, t0),
+                    name='init_state')
+
+# Define the update setp
+def update_state(x,t,dx,eps):
+    return tf.group(tf.assign_add(x, dx),
+                    tf.assign_add(t, eps),
+                    name='update_state')
+
+# Hamiltonian vector field
+def hamiltonian_vector_field(hamiltonian, t, x):
+    # note, t unused
+    q,p = extract_q_p(x)
+    dq,dp = tf.gradients(hamiltonian(q,p),[q,p])
+    return join_q_p(dp,-dq)

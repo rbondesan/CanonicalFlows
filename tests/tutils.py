@@ -58,6 +58,15 @@ def testBaseDistributionActionAngle():
     print('testBaseDistributionActionAngle passed')
 testBaseDistributionActionAngle()
 
+def testBaseDistributionIntegralsOfMotion():
+    settings = {'d': 2, 'num_particles': 3}
+    d = BaseDistributionIntegralsOfMotion(settings)
+    z = d.sample(15)
+    expected_shape = [15, settings['d'], settings['num_particles'], 2]
+    assert z.shape.as_list() == expected_shape
+    print('testBaseDistributionIntegralsOfMotion passed')
+testBaseDistributionIntegralsOfMotion()
+
 # TODO: update
 # def test_split():
 #     x=tf.constant([1,2,3,4], shape=(1,4,1)) # q=1,3; p=2,4
@@ -119,7 +128,7 @@ def test_system_flow():
 
     ts = tf.range(1,3, dtype=DTYPE)
 
-    qs, ps = system_flow(q0, p0, T, f, ts, prior='normal')
+    qs, ps, omega = system_flow(q0, p0, T, f, ts, prior='normal')
 
     # phi0 = tf.constant([2,3], shape=[1,2,1,1])
     # I0 = tf.constant([6,4], shape=[1,2,1,1])
@@ -140,3 +149,46 @@ def test_system_flow():
     assert_equal(ps, expected_ps)
     print("test_system_flow passed")
 test_system_flow()
+
+def test_system_flow_iom():
+    # test the case of prior = integrals_of_motion
+    class StubT():
+        def __call__(self, x):
+            return x
+
+        def inverse(self, x):
+            # Use on purpose a wrong inverse since system flow should
+            # not depend on it
+            return x + 1
+
+    class StubF():
+        def __init__(self):
+            self.log_scale = tf.ones([2,1,1])
+
+    T = StubT()
+    f = StubF()
+
+    q0 = tf.constant([1,2], shape=[1,2,1,1], dtype=DTYPE)
+    p0 = tf.constant([5,3], shape=[1,2,1,1], dtype=DTYPE)
+
+    ts = tf.range(1,3, dtype=DTYPE)
+
+    qs, ps, omega = system_flow(q0, p0, T, f, ts, prior='integrals_of_motion')
+
+    # Q0 = tf.constant([2,3], shape=[1,2,1,1])
+    # P0 = tf.constant([6,4], shape=[1,2,1,1])
+
+    # omega = [exp(-1), 0]
+
+    # sh = [2,1,1,1]
+    # Ps = [ [6, 4]  # t = 1
+    #        [6, 4]] # t = 2
+    # Qs = [ [2 + exp(-1) * 1, 3]  # t = 1
+    #        [2 + exp(-1) * 2, 3]] # t = 2
+    # same as qs, ps:
+    expected_qs = tf.constant([[2+np.exp(-1.),3],[2+np.exp(-1.)*2.,3]], shape=[2,2,1,1], dtype=DTYPE)
+    expected_ps = tf.constant([[6,4],[6,4]], shape=[2,2,1,1], dtype=DTYPE)
+    assert_equal(qs, expected_qs)
+    assert_equal(ps, expected_ps)
+    print("test_system_flow_iom passed")
+test_system_flow_iom()

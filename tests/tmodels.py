@@ -6,7 +6,13 @@ import tensorflow as tf
 import sys
 sys.path.append("../")
 from models import *
-from utils import assert_equal, assert_allclose
+from utils import assert_equal, assert_allclose, is_symplectic
+
+# Suppress the warning till they fix this:
+# lib/python3.5/site-packages/tensorflow/python/util/tf_inspect.py:75:
+# DeprecationWarning: inspect.getargspec() is deprecated, use inspect.signature() instead
+import warnings
+warnings.filterwarnings("ignore")
 
 tf.enable_eager_execution()
 DTYPE=tf.float32
@@ -45,9 +51,26 @@ def testConstantShiftAndScale():
     model = ConstantShiftAndScale()
     # Test call
     x = model(z)
-    assert_allclose(x, z) # Since scale and shift are zero, identity
-    assert_allclose(model.log_jacobian_det(z), tf.zeros((2,2,1,1), dtype=DTYPE))
-    pass
+    assert_equal(x, z) # Since scale and shift are zero, identity
+    assert_equal(model.inverse(x), z)
+    # This is not robust as tf equal zeros is always true
+    assert_equal(model.log_jacobian_det(z), tf.zeros((2,), dtype=DTYPE))
+    print("testConstantShiftAndScale passed")
+testConstantShiftAndScale()
+
+def testPermute():
+    z = tf.reshape(tf.range(0,6, dtype=DTYPE), shape=(2,3,1,1))
+    # z[0,:] = [0,1,2], z[1,:] = [3,4,5]
+    dim_to_split = 1; na = 1; nb = 3 - na
+    model = Permute(dim_to_split, [na, nb])
+    # Test call
+    x = model(z)
+    expected_x = tf.constant([1.,2.,0.,
+                             4.,5.,3.], shape=(2,3,1,1))
+    assert_allclose(x, expected_x)
+    assert_allclose(model.log_jacobian_det(z), tf.zeros((2,), dtype=DTYPE))
+    print("testPermute passed")
+testPermute()
 
 def testOscillatorFlow():
     # phi[0] = 0, I[0] = .5; phi[1] = 1; I[1] = 1.5
@@ -132,6 +155,20 @@ def testAdditiveCoupling():
     assert_allclose(z, inverted_x)
     # Test log jacobian determinant
     assert_allclose(model.log_jacobian_det(z), tf.zeros([2], dtype=DTYPE))
+    # test positive shift
+    z = tf.constant([.1,2,3,.4,5,.6], shape=(2,3,1,1), dtype=DTYPE)
+    val = -.123
+    out_shape = (2,1,1,1) # shape of za
+    model = AdditiveCoupling(ConstantNN(out_shape, val), 1, [1,2], is_positive_shift=True)
+    # Test call
+    x = model(z)
+    expected_x = tf.constant([.1 + .123, 2, 3,
+                              .4 + .123, 5, .6],shape=(2,3,1,1),
+                              dtype=DTYPE)
+    assert_allclose(x, expected_x)
+    # Test inverse
+    inverted_x = model.inverse(x)
+    assert_allclose(z, inverted_x)
     print('testAdditiveCoupling passed')
 testAdditiveCoupling()
 
@@ -151,6 +188,10 @@ def testSymplecticExchange():
     # Test zero log jacobian determinant
     z = tf.reshape(tf.range(1, 11), shape=(5,1,2))
     assert_equal(model.log_jacobian_det(z), tf.zeros([5], dtype=tf.int32))
+    # Assert symplecticity
+    model = SymplecticExchange()
+    assert( is_symplectic(model,
+                          tf.reshape(tf.range(0,20,dtype=DTYPE),[1,2,5,2]) ) )
     print('testSymplecticExchange passed')
 testSymplecticExchange()
 
@@ -169,6 +210,22 @@ def testSqueezeAndShift():
     assert_equal(model.log_jacobian_det(z), tf.zeros([5], dtype=tf.int32))
     print('testSqueezeAndShift passed')
 testSqueezeAndShift()
+
+def testLinearSymplectic():
+    # 2 samples, 5 particles in 2d. squeezing factors = [1,1]
+    x = tf.reshape(tf.range(0,40,dtype=DTYPE), shape=(2,2,5,2))
+    model = LinearSymplectic()
+    y = model(x)
+    assert(x.shape == y.shape)
+    assert_allclose(model.inverse(y), x)
+    model = LinearSymplectic()
+    assert( is_symplectic(model,
+                      tf.reshape(tf.range(0,20,dtype=DTYPE),[1,2,5,2]) ) )
+
+    # 5 samples, 2 particles in 2d. squeezing factors = [2,2]
+    # TODO
+    print('testLinearSymplectic passed')
+testLinearSymplectic()
 
 # Neural networks
 def testMLP():
