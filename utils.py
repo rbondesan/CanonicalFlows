@@ -148,6 +148,15 @@ def is_symplectic(model, x):
     omega_tilde = np.dot(np.dot(jacobian, omega), np.transpose(jacobian))
     return np.allclose(omega_tilde, omega, rtol=1e-05, atol=1e-08)
 
+def generate_and_save_images(model, epoch, test_input, sess, save=False):
+    predictions = model(test_input)
+#    fig = plt.figure(figsize=(4,4))
+    fig = plt.figure()
+    visualize_chain_bijector_1d(model, test_input, sess=sess)
+    if save:
+        plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
+    plt.show()
+
 def checkpoint_save(settings, optimizer, model, optimizer_step):
     name = settings['hamiltonian'].__name__
     for key, val in settings.items():
@@ -199,7 +208,6 @@ def run_eagerly(func):
 # TODO: update
 # Visualization
 def visualize_chain_bijector_1d(model, x, sess=None):
-    """Assumes eager mode"""
     if tf.executing_eagerly():
         samples = [x]
     else:

@@ -211,6 +211,23 @@ def testSqueezeAndShift():
     print('testSqueezeAndShift passed')
 testSqueezeAndShift()
 
+def testLinearSymplecticTwoByTwo():
+    batch_size = 2
+    d = 3
+    n = 2
+    x = tf.reshape(tf.range(0,batch_size*d*n*2,dtype=DTYPE),(batch_size, d, n, 2))
+    # Test call
+    model = LinearSymplecticTwoByTwo(rand_init=True)
+    y = model(x)
+    # Test inverse
+    z = model.inverse(y)
+    assert_allclose(x, z)
+    # Test symplectic
+    x = tf.random_normal((1, d, n, 2), dtype=DTYPE)
+    assert(is_symplectic(model, x))
+    print('testLinearSymplecticTwoByTwo passed')
+testLinearSymplecticTwoByTwo()
+
 def testLinearSymplectic():
     # 2 samples, 5 particles in 2d. squeezing factors = [1,1]
     x = tf.reshape(tf.range(0,40,dtype=DTYPE), shape=(2,2,5,2))
@@ -258,6 +275,15 @@ def testMLP():
     assert_equal(tf.shape(model(input)), expected_shape)
     print('testMLP passed')
 testMLP()
+
+def testIrrotationalMLPGivesSymplectic():
+    d = 2
+    n = 3
+    model = SqueezeAndShift(shift_model=IrrotationalMLP(rand_init=True))
+    x = tf.random_normal((1, d, n, 2), dtype=DTYPE)
+    assert(is_symplectic(model, x))
+    print('testIrrotationalMLPGivesSymplectic passed')
+testIrrotationalMLPGivesSymplectic()
 
 # TODO: update
 # def testCNNShiftModel():

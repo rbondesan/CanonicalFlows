@@ -241,6 +241,43 @@ class SqueezeAndShift(SymplecticFlow):
         return join_q_p(q * tf.exp(-self.scale_exponent),
                         p * tf.exp(self.scale_exponent) - self._shift_model(q))
 
+class LinearSymplecticTwoByTwo(SymplecticFlow):
+    def __init__(self, rand_init=False):
+        super(LinearSymplecticTwoByTwo, self).__init__()
+        self.rand_init = rand_init
+
+    def build(self, input_size):
+        """Initialize to identity or random"""
+        input_size = input_size.as_list()
+        dof = input_size[1] * input_size[2]
+        s_shape = [dof, 1, 1]
+        if self.rand_init:
+            s1_init = tf.keras.initializers.glorot_normal()(s_shape)
+            s2_init = tf.keras.initializers.glorot_normal()(s_shape)
+            s3_init = tf.keras.initializers.glorot_normal()(s_shape)
+        else:
+            s1_init = tf.ones(s_shape)
+            s2_init = s3_init = tf.zeros(s_shape)
+        s1 = tfe.Variable(s1_init, name="s1")
+        s2 = tfe.Variable(s2_init, name="s2")
+        s3 = tfe.Variable(s3_init, name="s3")
+        s4 = (1 + s2 * s3) / s1
+        self.S = tf.concat([tf.concat([s1, s2], axis=2), tf.concat([s3, s4], axis=2)], axis=1)
+        self.inverse_S = tf.concat([tf.concat([s4, -s2], axis=2), tf.concat([-s3, s1], axis=2)], axis=1)
+
+    def call(self, x):
+        x_shape = tf.shape(x)
+        # x_shape = [N,d,n,2] where q=[:,:,:,0], p=[:,:,:,1]
+        x = tf.reshape(x, [x_shape[0], x_shape[1]*x_shape[2], 2])
+        res = tf.einsum('abc,dac->dab', self.S, x)
+        return tf.reshape(res, shape=x_shape)
+
+    def inverse(self, x):
+        x_shape = tf.shape(x)
+        # x_shape = [N,d,n,2] where q=[:,:,:,0], p=[:,:,:,1]
+        x = tf.reshape(x, [x_shape[0], x_shape[1]*x_shape[2], 2])
+        res = tf.einsum('abc,dac->dab', self.inverse_S, x)
+        return tf.reshape(res, shape=x_shape)
 
 class LinearSymplectic(SymplecticFlow):
     def __init__(self, squeezing_factors=[1, 1]):
@@ -427,18 +464,58 @@ class MLP(tf.keras.Model):
     def call(self, x):
         return self.call_strategy(x)
 
+class IrrotationalMLP(tf.keras.Model):
+    """NN for irrotational vector field. Impose the symmetry at the level of weights of MLP."""
+    def __init__(self, activation=tf.nn.tanh, width=512, rand_init=False):
+        super(IrrotationalMLP, self).__init__()
+        self.width = width
+        self.rand_init = rand_init
+        self.act = activation
+
+    def build(self, input_shape):
+        input_shape = input_shape.as_list()
+        input_dimension = np.prod(input_shape[1:])
+        shape = (self.width,)
+        if self.rand_init:
+            W2_init = tf.keras.initializers.glorot_normal()(shape)
+            b2_init = tf.keras.initializers.glorot_normal()(shape)
+        else:
+            W2_init = tf.zeros(shape)
+            b2_init = tf.zeros(shape)
+        self.W1 = tfe.Variable(tf.keras.initializers.glorot_normal()((input_dimension, self.width)), name="W1")
+        self.W2 = tfe.Variable(W2_init, name="W2")
+        self.b1 = tfe.Variable(tf.keras.initializers.glorot_normal()(shape), name="b1")
+        self.b2 = tfe.Variable(b2_init, name="b2")
+        self.b3 = tfe.Variable(tf.zeros((input_dimension,)), name="b3")
+
+    def call(self, x):
+        x_shape = tf.shape(x)
+        x = tf.layers.flatten(x)
+        x = self.act(tf.matmul(x, self.W1) + self.b1) # x.shape = (batch, width)
+        x = self.act(tf.multiply(self.W2, x) + self.b2) # x.shape = (batch, width)
+        x = tf.matmul(x, self.W1, transpose_b=True) + self.b3  # x.shape = (batch, input_dimension)
+        return tf.reshape(x, x_shape)
+
 class MLPHamiltonian(tf.keras.Model):
     def __init__(self, d=512):
         """A neural network with scalar output and call method with args q,p"""
         super(MLPHamiltonian, self).__init__()
-        self.dense1 = tf.keras.layers.Dense(d, activation=tf.nn.softplus)
-        self.dense2 = tf.keras.layers.Dense(1)
+        self.dense1 = tf.keras.layers.Dense(d,
+                                            activation=tf.nn.softplus,
+                                            kernel_initializer=tf.keras.initializers.Orthogonal())
+        self.bn1 = tf.keras.layers.BatchNormalization()
+        self.dense2 = tf.keras.layers.Dense(d,
+                                            activation=tf.nn.softplus,
+                                            kernel_initializer=tf.keras.initializers.Orthogonal())
+        self.bn2 = tf.keras.layers.BatchNormalization()
+        self.dense3 = tf.keras.layers.Dense(1)
 
     def call(self, q, p):
         x = join_q_p(q,p)
         x = tf.layers.flatten(x)
-        x = self.dense1(x)
-        x = self.dense2(x)
+        x = self.bn1( self.dense1(x) )
+        x = self.bn2( self.dense2(x) )
+        x = self.dense3(x)
         return x
 
 # TODO: update

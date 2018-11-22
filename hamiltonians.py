@@ -11,7 +11,7 @@ from utils import extract_q_p
 # # 1 particle in 1d.
 def toy_hamiltonian(x):
     """1/2 * (q-1/4 p^2)^2 + 1/32 p^2
-    Assume x.shape = (N,d,1,2) with d=2,3."""
+    Assume x.shape = (N,1,n,2) with n=1,2,..."""
     q,p = extract_q_p(x)
     pSqr = tf.square(p)
     return 1/2 * tf.square(q - 1/4 * pSqr) + 1/32 * pSqr
