@@ -59,6 +59,18 @@ def parameterized_neumann(ks):
                 0.5 * tf.reduce_sum( tf.multiply(ks, tf.square(q)), axis=1 ))
     return neumann_hamiltonian
 
+def fpu_hamiltonian(x, alpha=1, beta=0):
+    """\sum_{i=1}^N 1/2 [p_i^2 + (q_{i} - q_{i+1})^2] + \alpha/3 (q_{i} - q_{i+1})^3 + \beta/4 (q_{i} - q_{i+1})^4
+    (with q_{N+1} = q_1). x.shape = (batch, 1, n, 2)
+    """
+    assert(x.shape[1] == 1)
+    q, p = extract_q_p(x)
+    qdiff = q - tf.manip.roll(q, shift=-1, axis=2) # q - (q_2, q_3, ..., q_{N}, q_1)
+    h = tf.reduce_sum(0.5 * tf.square(p) + 0.5 * tf.square(qdiff)
+                      + alpha / 3. * tf.pow(qdiff, 3)
+                      + beta / 4. * tf.pow(qdiff, 4),  axis=2)
+    return h
+
 # TODO: update
 # # Chains
 # def toy_hamiltonian_chain(x):
@@ -78,26 +90,6 @@ def parameterized_neumann(ks):
 #     q, p = extract_q_p(x)
 #     qdiff = q - tf.manip.roll(q, shift=-1, axis=1) # q - (q_2, q_3, ..., q_{N}, q_1)
 #     return 0.5 * tf.reduce_sum(tf.square(p) + + 0.5 * eps * tf.square(q) + tf.square(qdiff),  axis=1)
-#
-# def fpu_alpha_hamiltonian(x, eps=0):
-#     """\sum_{i=1}^N 1/2 [p_i^2 + eps * q_i^2 + (q_{i} - q_{i+1})^2] + 1/3 (q_{i} - q_{i+1})^3
-#     (with q_{N+1} = q_1). x.shape = (batch, phase_space, 1)
-#     Here eps is a regulator to make the density e^-H normalizable, avoiding zero mode.
-#     """
-#     assert(x.shape[2] == 1)
-#     q, p = extract_q_p(x)
-#     qdiff = q - tf.manip.roll(q, shift=-1, axis=1) # q - (q_2, q_3, ..., q_{N}, q_1)
-#     return tf.reduce_sum(0.5 * tf.square(p) + 0.5 * eps * tf.square(q) + 0.5 * tf.square(qdiff) + 1/3. * tf.pow(qdiff, 3),  axis=1)
-#
-# def fpu_beta_hamiltonian(x, eps=0):
-#     """\sum_{i=1}^N 1/2 [p_i^2 + (q_{i} - q_{i+1})^2] + 1/4 (q_{i} - q_{i+1})^4
-#     (with q_{N+1} = q_1) x.shape = (batch, phase_space, 1)
-#     Here eps is a regulator to make the density e^-H normalizable, avoiding zero mode.
-#     """
-#     assert(x.shape[2] == 1)
-#     q, p = extract_q_p(x)
-#     qdiff = q - tf.manip.roll(q, shift=-1, axis=1) # q - (q_2, q_3, ..., q_{N}, q_1)
-#     return tf.reduce_sum(0.5 * tf.square(p) + 0.5 * eps * tf.square(q) + 0.5 * tf.square(qdiff) + 1/4. * tf.pow(qdiff, 4),  axis=1)
 #
 # def toda_hamiltonian(x):
 #     """Toda lattice: 1/2 \sum_{i=1}^N  [p_i^2 + exp^{q_{i} - q_{i+1}}] (with q_{N+1} = q_1)

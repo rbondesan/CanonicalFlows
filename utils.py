@@ -304,9 +304,21 @@ def euler(q0, p0, f, g, N, h):
         qsol[n + 1,:] = qsol[n,:] + h * g(qsol[n,:],psol[n,:])
     return qsol, psol
 
-# TODO:
-# 1. use the appropriate extract/join ops (DONE)
-# 2. refactor to improve syntax, e.g. remove t1,x1 from rk4_step
+def hamiltons_equations(H,settings):
+    """Obtain Hamilton's equations by autodiff, assuming phase space point in format [q0,p0,q1,p1,...]"""
+    def flow(phase_space_point, t):
+        phase_space_point = tf.reshape(phase_space_point, [1,settings['d'],settings['num_particles'],2])
+        H_grads = tf.gradients(H(phase_space_point), phase_space_point)[0]
+        dHdq, dHdp = extract_q_p(H_grads)
+        flow_vec = join_q_p(dHdp, -dHdq)
+        return tf.reshape(flow_vec, (settings['d']*settings['num_particles']*2,))
+    return flow
+
+def hamiltonian_traj(H, init_state, settings, time=100, steps=200, rtol=1e-04, atol=1e-6):
+    """Integrate Hamilton's equations using TF, given initial phase space point"""
+    t = tf.linspace(0.0, time, num=steps)
+    tensor_state = tf.contrib.integrate.odeint(hamiltons_equations(H,settings), init_state, t, rtol, atol)
+    return tensor_state
 
 # Define the solver step
 def rk4_step(f, t, x, eps):
