@@ -78,7 +78,6 @@ def fpu_hamiltonian(x, alpha=1, beta=0):
                       + beta / 4. * tf.pow(qdiff, 4),  axis=1)
     return h
 
-
 def toda_hamiltonian(x):
     """Toda lattice: 1/2 \sum_{i=1}^N  [p_i^2 + exp^{q_{i} - q_{i+1}}] (with q_{N+1} = q_1)
     x.shape = (batch, phase_space, 1)

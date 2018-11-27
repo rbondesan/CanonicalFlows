@@ -38,6 +38,55 @@ class SymplecticExchange(tf.keras.Model):
         q,p = extract_q_p(x)
         return join_q_p(-p,q)
 
+class FFTNoZeroMode(tf.keras.Model):
+    """
+    Fourier bijector with zero mode amplitude set to zero.
+    """
+
+    def __init__(self):
+        super(FFTNoZeroMode, self).__init__()
+
+    def call(self, x):
+        qs, ps = extract_q_p(x)
+        # Eliminate the final axis
+        qs = tf.squeeze(qs)
+        ps = tf.squeeze(ps)
+        # Transform and normalize
+        sqrt_length = tf.sqrt(tf.cast(qs.shape[-1], dtype=tf.complex64))
+        q_modes = tf.spectral.rfft(qs) / sqrt_length
+        p_modes = tf.spectral.rfft(ps) / sqrt_length
+        # Remove the zero mode
+        q_modes = q_modes[:, 1:]
+        p_modes = p_modes[:, 1:]
+        # Split into real and imaginary parts
+        q_modes_r, q_modes_i = tf.real(q_modes), tf.imag(q_modes)
+        p_modes_r, p_modes_i = tf.real(p_modes), tf.imag(p_modes)
+        # Format output
+        q_modes = join_q_p(tf.expand_dims(q_modes_r, axis=-1), tf.expand_dims(q_modes_i, axis=-1))
+        p_modes = join_q_p(tf.expand_dims(p_modes_r, axis=-1), tf.expand_dims(p_modes_i, axis=-1))
+        amps = join_q_p(q_modes, p_modes)
+        return amps
+
+    def inverse(self, amps):
+        """map the mode amplitudes to coordinates. Shape is [batch_size, 4*(N//2), 1] with 1 axis having format:
+        input: [q_r1, p_r1, q_i1, p_i1, ..., p_1(N//2)] for q_r and q_i the real and imaginary amplitudes
+        output: [q_1, p_1, .... p_1N]
+
+        A zero mode is added with zero amplitude
+        """
+        amp = tf.to_complex64(amps)
+        q_modes, p_modes = extract_q_p(amps)
+        complex_q_modes = tf.complex(q_modes[:, ::2, 0], q_modes[:, 1::2, 0])
+        complex_p_modes = tf.complex(p_modes[:, ::2, 0], p_modes[:, 1::2, 0])
+        zero_mode = tf.zeros_like(complex_q_modes[:, :1], dtype=tf.complex64)
+        complex_q_modes = tf.concat([zero_mode, complex_q_modes], axis=-1)
+        complex_p_modes = tf.concat([zero_mode, complex_p_modes], axis=-1)
+        # Transform and normalize
+        sqrt_length = tf.sqrt(tf.cast(complex_q_modes.shape[-1], dtype=tf.float32))
+        q = tf.expand_dims(tf.spectral.irfft(complex_q_modes), axis=-1) * sqrt_length
+        p = tf.expand_dims(tf.spectral.irfft(complex_p_modes), axis=-1) * sqrt_length
+        return join_q_p(q, p)
+
 class LinearSymplecticTwoByTwo(tf.keras.Model):
     def __init__(self, rand_init=False):
         super(LinearSymplecticTwoByTwo, self).__init__()
