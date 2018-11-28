@@ -7,7 +7,6 @@ import tensorflow as tf
 tfe = tf.contrib.eager
 
 from utils import extract_q_p, join_q_p, int_shape
-from utils import rk4_step, update_state, init_state, hamiltonian_vector_field
 import utils
 from functools import partial
 from abc import ABC, abstractmethod
@@ -341,63 +340,47 @@ class LinearSymplectic(SymplecticFlow):
                               2
                               ])
 
-class HamiltonianFlow(SymplecticFlow):
-    def __init__(self, hamiltonian, input_size, dt=0.01, num_steps=1000):
-        """q,p \equiv q(0),p(0) -> q(t),p(t) under Hamiltonian's eom.
-        Here hamiltonian is a fcn that sends a tensor [N,d,n,2] to [N].
+# Hamiltonian vector field
+def hamiltonian_vector_field(hamiltonian, x, t, backward_time=False):
+    """X_H appearing in Hamilton's eqs: xdot = X_H(x)"""
+    # note, t unused. x is of shape (2n,)
+    q, p = extract_q_p(x)
+    dq, dp = tf.gradients(hamiltonian(q,p),[q,p])
+    if not backward_time:
+        return join_q_p(dp,-dq)
+    else:
+        return join_q_p(-dp,dq)
 
-        V1: backpropagate through each op of the ODEsolver.
-            hamiltonian is assumed t-independent
+class HamiltonianFlow(SymplecticFlow):
+    def __init__(self, hamiltonian, initial_t=0., final_t=10., num_steps=1000):
+        """q,p \equiv q(0),p(0) -> q(t),p(t) under Hamilton's eom.
+
+        V1: backpropagate through tf.contrib.odeint
         """
-        # Only lazy mode supported.
-        assert not tf.executing_eagerly()
         super(HamiltonianFlow, self).__init__()
-        self._dt = dt
-        self._eps = tf.placeholder(tf.float32, shape=())
-        self._num_steps = num_steps
+        self._t = tf.linspace(initial_t, final_t, num=num_steps)
         # Save the Hamiltonian since it can contain trainable variables
         # accessible from the HamiltonianFlow model.
         self._hamiltonian = hamiltonian
-
-        # Build the computational graph:
-        # Create the persistent vars here since we need to call
-        # sess.run(initializevars) before using them.
-        init_x = np.zeros(input_size)
-        self.x = tfe.Variable(init_x, dtype=tf.float32, trainable=False, name="x")
-        self.t = tfe.Variable(0., dtype=tf.float32, trainable=False, name="t")
-        _hamiltonian_vector_field = partial(hamiltonian_vector_field, hamiltonian)
-        _dx = rk4_step(_hamiltonian_vector_field, self.t, self.x, self._eps)
-        self.update = update_state(self.x, self.t, _dx, self._eps)
-        self.init = partial(init_state, self.x, self.t)
+        # Set integrator.
+        # TODO: replace with symplectic integrator (leapfrog)
+        self._integrate = tf.contrib.integrate.odeint
 
     def call(self, x0, return_full_state=False):
-        """integrate 0 -> T"""
-        # Initial condition of the ODE
-        self.init(x0,t0=0.).run()
+        """integrate t0 -> tf, x0 is initial condition.
+        If not return_full_state, returns the value at tf."""
+        hamilton_eqs = partial(hamiltonian_vector_field, self._hamiltonian)
+        x = self._integrate(hamilton_eqs, x0, self._t)
         if return_full_state:
-            # For debugging purposes
-            return self.update_and_return_state()
+            return x
         else:
-            # Run N steps of the integrator forward
-            for i in range(self._num_steps):
-                self.update.run({self._eps: +self._dt})
-            return self.x
-
-    def update_and_return_state(self):
-        state = []
-        for i in range(self._num_steps):
-            self.update.run({self._eps: +self._dt})
-            state.append( self.x.eval() )
-        return np.stack( state, axis=-1 )
+            return x[-1, ...]
 
     def inverse(self, x0):
-        """integrate T -> 0"""
-        # Initial condition of the ODE
-        self.init(x0,t0=self._num_steps * self._dt).run()
-        # Run N steps of the integrator backward
-        for i in range(self._num_steps):
-            self.update.run({self._eps: -self._dt})
-        return self.x
+        """integrate tf -> t0, x0 is initial condition. Returns value at t0"""
+        hamilton_eqs = partial(hamiltonian_vector_field, self._hamiltonian, backward_time=True)
+        x = self._integrate(hamilton_eqs, x0, self._t)
+        return x[-1, ...]
 
 # Neural networks: standard neural networks that implement arbitrary functions
 # used in the bijectors.

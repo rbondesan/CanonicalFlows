@@ -320,29 +320,30 @@ def hamiltonian_traj(H, init_state, settings, time=100, steps=200, rtol=1e-04, a
     tensor_state = tf.contrib.integrate.odeint(hamiltons_equations(H,settings), init_state, t, rtol, atol)
     return tensor_state
 
-# Define the solver step
-def rk4_step(f, t, x, eps):
-    k1 = f(t, x)
-    k2 = f(t + eps/2, x + eps*k1/2)
-    k3 = f(t + eps/2, x + eps*k2/2)
-    k4 = f(t + eps, x + eps*k3)
-    return eps/6 * (k1 + k2*2 + k3*2 + k4)
-
-# Define the initial condition
-def init_state(x,t,x0,t0):
-    return tf.group(tf.assign(x, x0),
-                    tf.assign(t, t0),
-                    name='init_state')
-
-# Define the update setp
-def update_state(x,t,dx,eps):
-    return tf.group(tf.assign_add(x, dx),
-                    tf.assign_add(t, eps),
-                    name='update_state')
-
-# Hamiltonian vector field
-def hamiltonian_vector_field(hamiltonian, t, x):
-    # note, t unused
-    q,p = extract_q_p(x)
-    dq,dp = tf.gradients(hamiltonian(q,p),[q,p])
-    return join_q_p(dp,-dq)
+# TODO: Remove?
+# # Define the solver step
+# def rk4_step(f, t, x, eps):
+#     k1 = f(t, x)
+#     k2 = f(t + eps/2, x + eps*k1/2)
+#     k3 = f(t + eps/2, x + eps*k2/2)
+#     k4 = f(t + eps, x + eps*k3)
+#     return eps/6 * (k1 + k2*2 + k3*2 + k4)
+#
+# # Define the initial condition
+# def init_state(x,t,x0,t0):
+#     return tf.group(tf.assign(x, x0),
+#                     tf.assign(t, t0),
+#                     name='init_state')
+#
+# # Define the update setp
+# def update_state(x,t,dx,eps):
+#     return tf.group(tf.assign_add(x, dx),
+#                     tf.assign_add(t, eps),
+#                     name='update_state')
+#
+# # Hamiltonian vector field
+# def hamiltonian_vector_field(hamiltonian, t, x):
+#     # note, t unused
+#     q,p = extract_q_p(x)
+#     dq,dp = tf.gradients(hamiltonian(q,p),[q,p])
+#     return join_q_p(dp,-dq)
