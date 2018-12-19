@@ -22,23 +22,27 @@ def toy_hamiltonian(x):
 #     q,p = extract_q_p(x)
 #     return 1/2 * tf.square(p) + tf.cos(q)
 
-def single_harmonic_oscillator(x):
-    """Harmonic oscillator: 1/2 ( p^2 + q^2 )
-    Assume x.shape = (N,1,1,2), d=n=1."""
+def harmonic_oscillator(x):
+    """Harmonic oscillator: 1/2 sum( p^2 + q^2 ) Assume x.shape =
+    (N,d,n,2), n uncoupled harmonic oscillators in d-dimensions
+
+    """
     q, p = extract_q_p(x)
     return 0.5 * tf.reduce_sum(tf.square(p) + tf.square(q),  axis=[1,2,3])
 
 # 1 particle in d-dim.
 def coulomb(r):
     """r.shape = (N,1,1) """
-    eps = 1e-5
-    return 1.0 / (r + eps)
+    return 1.0 / r
 
 def kepler(x, V=coulomb):
     """H = 1/2 sum_{i=1}^d p_i^2 + V(r), r = sqrt(sum_{i=1}^d q_i^2).
     Assume x.shape = (N,d,1,2) with d=2,3."""
     q,p = extract_q_p(x)
-    r = tf.sqrt(tf.reduce_sum(tf.square(q), axis=1))
+    # The derivative of r wrt q is 1/sqrt(sum(q^2)), which is singular in 0.
+    # Cutoff r so that it is > eps.
+    eps = 1e-5
+    r = tf.sqrt(tf.reduce_sum(tf.square(q), axis=1) + eps)
     return tf.squeeze(0.5 * tf.reduce_sum(tf.square(p), axis=1) + V(r))
 
 # Integrable many particle
@@ -91,13 +95,3 @@ def fpu_hamiltonian(x, alpha=1, beta=0):
 #     qdiff = q - tf.manip.roll(q, shift=-1, axis=1) # q - (q_2, q_3, ..., q_{N}, q_1)
 #     return 0.5 * tf.reduce_sum(tf.square(p) + + 0.5 * eps * tf.square(q) + tf.square(qdiff),  axis=1)
 #
-# def toda_hamiltonian(x):
-#     """Toda lattice: 1/2 \sum_{i=1}^N  [p_i^2 + exp^{q_{i} - q_{i+1}}] (with q_{N+1} = q_1)
-#     x.shape = (batch, phase_space, 1)
-#     """
-#     assert(x.shape[2] == 1)
-#     q, p = extract_q_p(x)
-#     # TODO: Compute exp(qdiff) avoiding overfloating (which occurs for exp(hundred) or so)
-#     # TODO: Add regulator eps
-#     qdiff = q - tf.manip.roll(q, shift=-1, axis=1) # q - (q_2, q_3, ..., q_{N}, q_1)
-#     return 0.5 * tf.reduce_sum(tf.square(p) + tf.exp(qdiff),  axis=1)

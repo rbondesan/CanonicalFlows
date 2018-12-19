@@ -85,8 +85,22 @@ def testOscillatorFlow():
     z = tf.reshape(tf.range(0,36,dtype=DTYPE),[3,2,3,2]) / 36.
     m = OscillatorFlow()
     assert_allclose(m.inverse(m(z)), z)
+    #
+    z = tf.reshape(tf.range(0,36,dtype=DTYPE),[3,2,3,2]) / 36.
+    m = OscillatorFlow(first_only=True)
+    assert_allclose(m.inverse(m(z)), z)
     print("testOscillatorFlow passed")
 testOscillatorFlow()
+
+def testNonLinearSqueezing():
+    f = ConstantShiftAndScale()
+    m = NonLinearSqueezing(f)
+    x = tf.reshape(tf.range(0,20,dtype=tf.float32), [2,1,5,2])
+    y = m(x)
+    x_new = m.inverse(y)
+    assert_allclose( x,x_new )
+    print("testNonLinearSqueezing passed")
+testNonLinearSqueezing()
 
 def testAffineCoupling():
     z = tf.constant([.1,2,3,.4], shape=(2,2,1,1), dtype=DTYPE) # u[0,:]=.1,2, u[1,:]=3,.4

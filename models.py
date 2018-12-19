@@ -10,6 +10,7 @@ from utils import extract_q_p, join_q_p, int_shape
 import utils
 from functools import partial
 from abc import ABC, abstractmethod
+from tensorflow.python.ops.parallel_for import gradients as tf_gradients_ops
 
 # Interfaces and mixins
 class NormalizingFlow(ABC, tf.keras.Model):
@@ -278,6 +279,8 @@ class LinearSymplecticTwoByTwo(SymplecticFlow):
         res = tf.einsum('abc,dac->dab', self.inverse_S, x)
         return tf.reshape(res, shape=x_shape)
 
+# TODO: It cannot represent the identity since L neq 0 so it leads to nans
+# when trying to learn identity.
 class LinearSymplectic(SymplecticFlow):
     def __init__(self, squeezing_factors=[1, 1]):
         """q,p -> conv2d( squeeze(q,p) , filters = 1x1, weights=S ) ->
@@ -343,9 +346,9 @@ class LinearSymplectic(SymplecticFlow):
 # Hamiltonian vector field
 def hamiltonian_vector_field(hamiltonian, x, t, backward_time=False):
     """X_H appearing in Hamilton's eqs: xdot = X_H(x)"""
-    # note, t unused. x is of shape (2n,)
-    q, p = extract_q_p(x)
-    dq, dp = tf.gradients(hamiltonian(q,p),[q,p])
+    # note, t unused.
+    dx = tf.gradients(hamiltonian(x),x)[0]
+    dq,dp = extract_q_p(dx)
     if not backward_time:
         return join_q_p(dp,-dq)
     else:
@@ -381,6 +384,26 @@ class HamiltonianFlow(SymplecticFlow):
         hamilton_eqs = partial(hamiltonian_vector_field, self._hamiltonian, backward_time=True)
         x = self._integrate(hamilton_eqs, x0, self._t)
         return x[-1, ...]
+
+class NonLinearSqueezing(SymplecticFlow):
+    def __init__(self, f):
+        """(q,p) -> (f(q), Df(q)^{-1} p)"""
+        super(NonLinearSqueezing, self).__init__()
+        #assert isinstance(f, NormalizingFlow), "f needs to have an inverse"
+        self._f = f
+
+    def call(self, x):
+        q, p = extract_q_p(x)
+        q_prime = self._f(q)
+        # Df(q)^{-1} = D(f^{-1}( q_prime ))
+        df_inverse = tf_gradients_ops.jacobian( self._f.inverse(q_prime), q_prime,use_pfor=False )
+        return join_q_p(q_prime, tf.tensordot(df_inverse, p, [[4,5,6,7],[0,1,2,3]]))
+
+    def inverse(self, z):
+        q, p = extract_q_p(x)
+        q_prime = self._f.inverse(q)
+        df = tf_gradients_ops.jacobian( self._f(q_prime), q_prime,use_pfor=False )
+        return join_q_p(q_prime, tf.tensordot(df, p, [[4,5,6,7],[0,1,2,3]]))
 
 # Neural networks: standard neural networks that implement arbitrary functions
 # used in the bijectors.
@@ -480,21 +503,20 @@ class IrrotationalMLP(tf.keras.Model):
         return tf.reshape(x, x_shape)
 
 class MLPHamiltonian(tf.keras.Model):
-    def __init__(self, d=512):
-        """A neural network with scalar output and call method with args q,p"""
+    def __init__(self, d=512, activation=tf.nn.softplus):
+        """A neural network with scalar output. Arbitrary input x"""
         super(MLPHamiltonian, self).__init__()
         self.dense1 = tf.keras.layers.Dense(d,
-                                            activation=tf.nn.softplus,
+                                            activation=activation,
                                             kernel_initializer=tf.keras.initializers.Orthogonal())
         self.bn1 = tf.keras.layers.BatchNormalization()
         self.dense2 = tf.keras.layers.Dense(d,
-                                            activation=tf.nn.softplus,
+                                            activation=activation,
                                             kernel_initializer=tf.keras.initializers.Orthogonal())
         self.bn2 = tf.keras.layers.BatchNormalization()
         self.dense3 = tf.keras.layers.Dense(1)
 
-    def call(self, q, p):
-        x = join_q_p(q,p)
+    def call(self, x):
         x = tf.layers.flatten(x)
         x = self.bn1( self.dense1(x) )
         x = self.bn2( self.dense2(x) )
@@ -692,18 +714,45 @@ class SinPhiFlow(SymplecticFlow):
 class OscillatorFlow(SymplecticFlow):
     """Map to symplectic polar coordinates. Works for arbitrary (N,d,n,2)
     tensors."""
-    def __init__(self):
+    def __init__(self, first_only=False):
         super(OscillatorFlow, self).__init__()
+        self._first_only = first_only
 
     def call(self, z):
         phi, I = extract_q_p(z)
-        sqrt_two_I = tf.sqrt(2. * I)
-        q = tf.multiply(sqrt_two_I, tf.sin(phi))
-        p = tf.multiply(sqrt_two_I, tf.cos(phi))
+        if self._first_only:
+            sqrt_two_I = tf.sqrt(2. * I[:,0,0,0])
+            q000 = tf.multiply(sqrt_two_I, tf.sin(phi[:,0,0,0]))
+            p000 = tf.multiply(sqrt_two_I, tf.cos(phi[:,0,0,0]))
+            p = I
+            q = phi
+            p = self._assign_000(p, p000)
+            q = self._assign_000(q, q000)
+        else:
+            sqrt_two_I = tf.sqrt(2. * I)
+            q = tf.multiply(sqrt_two_I, tf.sin(phi))
+            p = tf.multiply(sqrt_two_I, tf.cos(phi))
         return join_q_p(q,p)
 
     def inverse(self, x):
         qq, pp = extract_q_p(x)
-        phi = tf.atan(qq / pp)
-        I = 0.5 * (tf.square(qq) + tf.square(pp))
+        if self._first_only:
+            I000 = 0.5 * (tf.square(qq[:,0,0,0]) + tf.square(pp[:,0,0,0]))
+            phi000 = tf.atan(qq[:,0,0,0] / pp[:,0,0,0])
+            I = pp
+            phi = qq
+            I = self._assign_000(I, I000)
+            phi = self._assign_000(phi, phi000)
+        else:
+            phi = tf.atan(qq / pp)
+            I = 0.5 * (tf.square(qq) + tf.square(pp))
         return join_q_p(phi, I)
+
+    def _assign_000(self, v, v000):
+        # v is of shape [N,d,n,1]
+        d = tf.shape(v)[1]
+        n = tf.shape(v)[2]
+        v = tf.reshape(v, [-1,d*n,1])
+        v000 = tf.reshape(v000, [-1,1,1])
+        v = tf.concat([v000, v[:,1:,:]], 1)
+        return tf.reshape(v, [-1,d,n,1])

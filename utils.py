@@ -10,6 +10,7 @@ import os
 tfe = tf.contrib.eager
 import tensorflow_probability as tfp
 tfd = tfp.distributions
+from tensorflow.python.ops.parallel_for import gradients as tf_gradients_ops
 
 DTYPE = tf.float32
 NP_DTYPE=np.float32
@@ -35,6 +36,9 @@ def int_shape(x):
     if str(x.get_shape()[0]) != '?':
         return list(map(int, x.get_shape()))
     return [-1]+list(map(int, x.get_shape()[1:]))
+
+def normsq_nobatch(x):
+    return tf.reduce_sum( tf.square(x), [1,2,3] )
 
 # TODO: update
 # def split(x):
@@ -123,12 +127,11 @@ class BaseDistributionIntegralsOfMotion():
 #     p_shifted = tf.manip.roll(p, shift=1, axis=1)
 #     return join_q_p(q_shifted, p_shifted)
 
-def is_symplectic(model, x):
+def compute_jacobian_eager(model, x):
     """Test if model is simplectic at x.
     Assume x.shape = (1,n1,n2,..,nd,2)"""
     x_shape = x.shape
-    assert x_shape[0] == 1 and x_shape[-1] == 2
-    phase_space_dim = int(get_phase_space_dim(x_shape))
+    phase_space_dim = np.prod(x_shape[1:])
     x = tf.reshape(x, (phase_space_dim,))
     with tf.GradientTape(persistent=True) as g:
         g.watch(x)
@@ -142,11 +145,27 @@ def is_symplectic(model, x):
         # set the i-th row
         jacobian[i,:] = np.reshape(g.gradient(ys[i], x).numpy(), (phase_space_dim,))
     del g
+    return jacobian
 
+def compute_np_jacobian_lazy(y, x, sess):
+    """Return is a np matrix"""
+    J = tf_gradients_ops.jacobian(y,x,use_pfor=False) # Need pfor false, not sure why...
+    phase_space_dim = tf.reduce_prod(tf.shape(x)[1:])
+    J_np = sess.run( tf.reshape(J, (phase_space_dim, phase_space_dim)) )
+    return J_np
+
+def is_symplectic(model, x, sess=None, rtol=1e-05, atol=1e-08):
+    """Test if model is simplectic at x in numpy.
+    Assume x.shape = (1,n1,n2,..,nd,2)"""
+    if tf.executing_eagerly():
+        J = compute_jacobian_eager(model(x), x)
+    else:
+        J = compute_np_jacobian_lazy(model(x), x, sess)
+    phase_space_dim = J.shape[0]
     iSigma2 = np.array([[0,1],[-1,0]])
     omega = np.kron(np.eye(phase_space_dim//2), iSigma2)
-    omega_tilde = np.dot(np.dot(jacobian, omega), np.transpose(jacobian))
-    return np.allclose(omega_tilde, omega, rtol=1e-05, atol=1e-08)
+    omega_tilde = np.dot(np.dot(J, omega), np.transpose(J))
+    return np.allclose(omega_tilde, omega, rtol=rtol, atol=atol)
 
 def generate_and_save_images(model, epoch, test_input, sess, save=False):
     predictions = model(test_input)
@@ -242,6 +261,57 @@ def visualize_chain_bijector_1d(model, x, sess=None):
 #        arr[i].set_ylim([-10, 10])
         arr[i].set_title(names[i])
 
+def visualize_chain_bijector(model, x, sess=None, inverse=False):
+    assert not tf.executing_eagerly()
+
+    # Compute data
+    samples = [sess.run(x)]
+    names = ["base_dist"]
+    if inverse:
+        for bijector in reversed(model.bijectors):
+            x = bijector.inverse(x)
+            samples.append(sess.run(x))
+            names.append(bijector.name)
+    else:
+        for bijector in model.bijectors:
+            x = bijector(x)
+            samples.append(sess.run(x))
+            names.append(bijector.name)
+
+    # Subplot with nrows = d * num_particles, cols = number of bijectors
+    d = samples[0].shape[1]
+    num_particles = samples[0].shape[2]
+    nrows = d * num_particles
+    ncols = len(samples)
+    f, arr = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
+    if nrows == 1:
+        arr = np.expand_dims(arr,0)
+
+    for a in range(d):
+        for b in range(num_particles):
+            row = a * num_particles + b
+            # X0 is the first column
+            X0 = np.reshape(samples[0][:,a,b], (samples[0].shape[0], 2))
+            # Go throught the columns
+            for i in range(len(samples)):
+                X1 = np.reshape(samples[i][:,a,b], (samples[i].shape[0], 2))
+
+                idx = np.logical_and(X0[:, 0] < 0, X0[:, 1] < 0)
+                arr[row,i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='red',
+                                   alpha=.25)
+                idx = np.logical_and(X0[:, 0] > 0, X0[:, 1] < 0)
+                arr[row,i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='green',
+                                   alpha=.25)
+                idx = np.logical_and(X0[:, 0] < 0, X0[:, 1] > 0)
+                arr[row,i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='blue',
+                                   alpha=.25)
+                idx = np.logical_and(X0[:, 0] > 0, X0[:, 1] > 0)
+                arr[row,i].scatter(X1[idx, 0], X1[idx, 1], s=10, color='black',
+                                   alpha=.25)
+        #        arr[row,i].set_xlim([-10, 10])
+        #        arr[rowi].set_ylim([-10, 10])
+                arr[row,i].set_title(names[i]+"_"+str(a)+"_"+str(b))
+
 # Observables
 def compute_frequencies(f, I, prior):
     with tf.GradientTape() as g:
@@ -304,7 +374,7 @@ def euler(q0, p0, f, g, N, h):
         qsol[n + 1,:] = qsol[n,:] + h * g(qsol[n,:],psol[n,:])
     return qsol, psol
 
-def hamiltons_equations(H,settings):
+def hamiltons_equations(H):
     """Obtain Hamilton's equations by autodiff, assuming phase space point in format [q0,p0,q1,p1,...]"""
     def flow(phase_space_point, t):
         phase_space_point = tf.reshape(phase_space_point, [1,settings['d'],settings['num_particles'],2])
