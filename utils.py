@@ -8,8 +8,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 tfe = tf.contrib.eager
-import tensorflow_probability as tfp
-tfd = tfp.distributions
 from tensorflow.python.ops.parallel_for import gradients as tf_gradients_ops
 
 DTYPE = tf.float32
@@ -62,60 +60,6 @@ def normsq_nobatch(x):
 #     else:
 #         return tf.constant([])
 
-# Distributions
-class BaseDistributionActionAngle():
-    def __init__(self, settings, action_dist='exponential'):
-        sh = [settings['d'], settings['num_particles'], 1]
-        # Actions
-        if action_dist == 'exponential':
-            self.base_dist_u = tfd.Independent(tfd.Exponential(rate=tf.ones(sh, DTYPE)),
-                                               reinterpreted_batch_ndims=len(sh))
-        elif action_dist == 'normal':
-            self.base_dist_u = tfd.MultivariateNormalDiag(loc=tf.zeros(sh, DTYPE))
-        # Angles
-        self.base_dist_phi = tfd.Independent(tfd.Uniform(low=tf.zeros(sh, DTYPE),
-                                                         high=2*np.pi*tf.ones(sh, DTYPE)),
-                                             reinterpreted_batch_ndims=len(sh))
-
-    def sample(self, N):
-        u = self.base_dist_u.sample(N)
-        phi = self.base_dist_phi.sample(N)
-        return join_q_p(phi, u)
-
-class BaseDistributionNormal():
-    def __init__(self, settings):
-        sh = [settings['d'], settings['num_particles'], 2]
-        self.base_dist_z = tfd.MultivariateNormalDiag(loc=tf.zeros(sh, DTYPE))
-
-    def sample(self, N):
-        return self.base_dist_z.sample(N)
-
-class BaseDistributionIntegralsOfMotion():
-    def __init__(self, settings):
-        """In the integrals of motion basis and their conjugate (F,psi), we
-        can choose F_1 = H, so that the distribution is exponential for the first
-        "momentum" variable and uniform for all the others. Here use standard
-        normalization as the ranges will be learnt as part of the
-        base-distribution-sampler part of the model"""
-        # F
-        self.base_dist_F1 = tfd.Exponential(rate=1.)
-        sh = (settings['d'] * settings['num_particles'] - 1,)
-        self.base_dist_otherF = tfd.Independent(tfd.Uniform(low=tf.zeros(sh, DTYPE),
-                                                            high=2*np.pi*tf.ones(sh, DTYPE)),
-                                                reinterpreted_batch_ndims=len(sh))
-        # Psi
-        self.sh = [settings['d'], settings['num_particles'], 1]
-        self.base_dist_Psi = tfd.Independent(tfd.Uniform(low=tf.zeros(self.sh, DTYPE),
-                                                         high=tf.ones(self.sh, DTYPE)),
-                                             reinterpreted_batch_ndims=len(self.sh))
-
-    def sample(self, N):
-        F1 = tf.reshape(self.base_dist_F1.sample(N), shape=[N,1]) # sh = [N,1]
-        otherF = self.base_dist_otherF.sample(N)  # sh = [N,d*n-1]
-        F = tf.concat([F1, otherF], 1)       # sh = [N,d*n]
-        F = tf.reshape(F, shape=[N]+self.sh) # sh = [N,d,n,1]
-        Psi = self.base_dist_Psi.sample(N)
-        return join_q_p(Psi, F)
 
 # TODO: update
 # Symmetry utils
@@ -126,6 +70,33 @@ class BaseDistributionIntegralsOfMotion():
 #     q_shifted = tf.manip.roll(q, shift=1, axis=1)
 #     p_shifted = tf.manip.roll(p, shift=1, axis=1)
 #     return join_q_p(q_shifted, p_shifted)
+
+def make_train_op(settings, loss, step):
+    with tf.name_scope("train"):
+        starter_learning_rate = settings['starter_learning_rate']
+        if settings['decay_lr'] == "exp":
+            learning_rate = tf.train.exponential_decay(starter_learning_rate, step, settings['decay_steps'],
+                                                       settings['decay_rate'], staircase=False)
+        elif settings['decay_lr'] == "piecewise":
+            boundaries = settings['boundaries']
+            values = settings['values']
+            learning_rate = tf.train.piecewise_constant(step, boundaries, values)
+        else:
+            learning_rate = tf.constant(starter_learning_rate)
+        learning_rate = tf.maximum(learning_rate, settings['min_learning_rate']) # clip
+        if settings['visualize']:
+            tf.summary.scalar("lr", learning_rate)
+        optimizer = tf.train.AdamOptimizer(learning_rate)
+        gradients = optimizer.compute_gradients(loss=loss)
+        if settings['visualize']:
+            for gradient, variable in gradients:
+                tf.summary.scalar("gradients/" + variable.name.replace(':','_'), tf.norm(gradient))
+                tf.summary.scalar("variable/" + variable.name.replace(':','_'), tf.norm(variable))
+                if "log_scale" in variable.name:
+                    # Add histogram
+                    print('adding hist')
+                    tf.summary.histogram(variable.name.replace(':','_'), variable)
+    return optimizer.apply_gradients(gradients, global_step=step)
 
 def compute_jacobian_eager(model, x):
     """Test if model is simplectic at x.
@@ -158,7 +129,8 @@ def is_symplectic(model, x, sess=None, rtol=1e-05, atol=1e-08):
     """Test if model is simplectic at x in numpy.
     Assume x.shape = (1,n1,n2,..,nd,2)"""
     if tf.executing_eagerly():
-        J = compute_jacobian_eager(model(x), x)
+        #import pdb; pdb.set_trace()
+        J = compute_jacobian_eager(model, x)
     else:
         J = compute_np_jacobian_lazy(model(x), x, sess)
     phase_space_dim = J.shape[0]
@@ -177,13 +149,7 @@ def generate_and_save_images(model, epoch, test_input, sess, save=False):
     plt.show()
 
 def checkpoint_save(settings, optimizer, model, optimizer_step):
-    name = settings['hamiltonian'].__name__
-    for key, val in settings.items():
-        if key == 'hamiltonian':
-            continue
-        else:
-            name += "_"+key+str(val)
-    checkpoint_dir = 'saved_models'
+    checkpoint_dir = settings['log_dir']
     checkpoint_prefix = os.path.join(checkpoint_dir, name)
     root = tfe.Checkpoint(optimizer=optimizer,
                           model=model,
@@ -313,6 +279,29 @@ def visualize_chain_bijector(model, x, sess=None, inverse=False):
                 arr[row,i].set_title(names[i]+"_"+str(a)+"_"+str(b))
 
 # Observables
+def compute_gradK_penalty(K, z):
+    # Note: this works only in graph mode.
+    dPsi, dF = extract_q_p( tf.gradients(K, z)[0] )
+    dF = tf.layers.flatten(dF)
+    penaltyF = tf.square( dF[:,0] - 1 ) + tf.reduce_sum(tf.square( dF[:,1:] ), 1)
+    penaltyPsi = tf.reduce_sum(tf.square(dPsi), [1,2,3])
+    return tf.reduce_mean(penaltyF + penaltyPsi)
+
+# def indicator_fcn(low, high, x):
+#     # return: 0 if x in [low, high]; 1 otherwise
+#     return tf.cast(tf.reduce_all(tf.logical_and(low < x, x < high)), DTYPE)
+
+def confining_potential(x, low, high):
+    # Penalizes x outside the range [low,high]:
+    # -V(x-low) if x < low
+    # 0         if low < x < high
+    # V(x-high) if x > high
+    # Use linear potential.
+    V = lambda x : x
+    return tf.where(tf.greater(x, high), V(x-high),                # x > high
+                    tf.where(tf.greater(x, low), tf.zeros_like(x), # low < x < high
+                             -V(x-low)))                           # x < low
+
 def compute_frequencies(f, I, prior):
     with tf.GradientTape() as g:
         g.watch(I)
@@ -374,8 +363,9 @@ def euler(q0, p0, f, g, N, h):
         qsol[n + 1,:] = qsol[n,:] + h * g(qsol[n,:],psol[n,:])
     return qsol, psol
 
-def hamiltons_equations(H):
-    """Obtain Hamilton's equations by autodiff, assuming phase space point in format [q0,p0,q1,p1,...]"""
+def hamiltons_equations(H,settings):
+    """Obtain Hamilton's equations by autodiff, assuming phase space point in
+    format [1,d,n,2]"""
     def flow(phase_space_point, t):
         phase_space_point = tf.reshape(phase_space_point, [1,settings['d'],settings['num_particles'],2])
         H_grads = tf.gradients(H(phase_space_point), phase_space_point)[0]

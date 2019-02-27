@@ -30,20 +30,22 @@ def harmonic_oscillator(x):
     q, p = extract_q_p(x)
     return 0.5 * tf.reduce_sum(tf.square(p) + tf.square(q),  axis=[1,2,3])
 
-# 1 particle in d-dim.
-def coulomb(r):
-    """r.shape = (N,1,1) """
-    return 1.0 / r
-
-def kepler(x, V=coulomb):
-    """H = 1/2 sum_{i=1}^d p_i^2 + V(r), r = sqrt(sum_{i=1}^d q_i^2).
-    Assume x.shape = (N,d,1,2) with d=2,3."""
+def kepler(x, k=1.0):
+    """H = 1/2 sum_{i=1}^d p_i^2 + k/r, r = sqrt(sum_{i=1}^d q_i^2).
+    Assume x.shape = (N,d,1,2) with d=2,3.
+    V(r)=k/r, k>0 repulsive, k<0 attractive."""
     q,p = extract_q_p(x)
     # The derivative of r wrt q is 1/sqrt(sum(q^2)), which is singular in 0.
     # Cutoff r so that it is > eps.
     eps = 1e-5
     r = tf.sqrt(tf.reduce_sum(tf.square(q), axis=1) + eps)
-    return tf.squeeze(0.5 * tf.reduce_sum(tf.square(p), axis=1) + V(r))
+    return tf.squeeze(0.5 * tf.reduce_sum(tf.square(p), axis=1) + k / r)
+
+def free(x):
+    """H = 1/2 sum_{i=1}^d p_i^2.
+    Assume x.shape = (N,d,1,2) with d=1,2,3,..."""
+    _, p = extract_q_p(x)
+    return tf.squeeze(0.5 * tf.reduce_sum(tf.square(p), axis=1))
 
 # Integrable many particle
 def parameterized_neumann(ks):
@@ -75,16 +77,37 @@ def fpu_hamiltonian(x, alpha=1, beta=0):
                       + beta / 4. * tf.pow(qdiff, 4),  axis=2)
     return h
 
-# TODO: update
-# # Chains
-# def toy_hamiltonian_chain(x):
-#     """1/2 * (q-1/4 p^2)^2 + 1/32 p^2. Decoupled"""
-#     assert(x.shape[2] == 1)
-#     q,p = extract_q_p(x)
-#     pSqr = tf.square(p)
-#     return 1/2 * tf.reduce_sum( tf.square(q - 1/4 * pSqr) + 1/32 * pSqr , axis=1 )
-#
-#
+def open_toda(x):
+    """1/2 \sum_{i=1}^N  p_i^2 + \sum_{i=1}^{n-1} exp(q_i - q_{i+1}).
+    x.shape = (N,1,n,2)"""
+    q, p = extract_q_p(x)
+    # q2, q3, ... , qN, q1
+    qshift = tf.manip.roll(q, shift=-1, axis=2)
+    # q1-q2, q2-q3, ... , q{N-1}-qN -> omit qN-q1, so qdiff shape (N,1,n-1,1)
+    qdiff = q[:,:,:-1,:] - qshift[:,:,:-1,:]
+    V = tf.reduce_sum(tf.exp(qdiff), axis=2)
+    K = 0.5 * tf.reduce_sum(tf.square(p), axis=2)
+    return K + V
+
+def closed_toda(x):
+    """1/2 \sum_{i=1}^n  p_i^2 + \sum_{i=1}^{n} exp(q_i - q_{i+1}).
+    x.shape = (N,1,n,2)"""
+    q, p = extract_q_p(x)
+    # q2, q3, ... , qN, q1
+    qshift = tf.manip.roll(q, shift=-1, axis=2)
+    # q1-q2, q2-q3, ... , q{N-1}-qN,qN-q1
+    qdiff = q - qshift
+    return tf.reduce_sum(0.5 * tf.square(p)+tf.exp(qdiff), axis=2)
+
+def closed_toda_3(x):
+    """p_x^2 + p_y^2 + e^{-2 y}+ e^{y-\sqrt{3}x}+ e^{y+\sqrt{3}x}\,.
+    x.shape = (N,1,2,2). Normal mode expression if center mass fixed."""
+    q, p = extract_q_p(x)
+    x = q[:,0,0,0]
+    y = q[:,0,1,0]
+    V = tf.exp(-2.*y) + tf.exp(y - tf.sqrt(3.)*x) + tf.exp(y + tf.sqrt(3.)*x)
+    return tf.reduce_sum(tf.square(p), axis=2) + V
+
 # def diff_square_hamiltonian(x, eps=0):
 #     """1/2 \sum_{i=1}^N  [p_i^2 + eps * q_i^2 + (q_{i} - q_{i+1})^2] (with q_{N+1} = q_1)
 #     x.shape = (batch, phase_space, 1)

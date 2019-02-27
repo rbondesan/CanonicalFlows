@@ -12,6 +12,8 @@ from functools import partial
 from abc import ABC, abstractmethod
 from tensorflow.python.ops.parallel_for import gradients as tf_gradients_ops
 
+DTYPE = tf.float32
+
 # Interfaces and mixins
 class NormalizingFlow(ABC, tf.keras.Model):
     """Interface for keras models representing normalizing flows."""
@@ -91,26 +93,46 @@ class Permute(ZeroLogJacobianDetMixin, NormalizingFlow):
         return self.call(x)
 
 class ConstantShiftAndScale(NormalizingFlow):
-    def __init__(self):
+    def __init__(self, shift=True):
         """ConstantShiftAndScale - general bijector:
         z -> e^s z + t. Can be used to enrich a base distribution as part of
         the base distribution sampling.
         """
         super(ConstantShiftAndScale, self).__init__()
+        self._do_shift = shift
 
     def build(self, sz):
         dims = sz[1:]
-        self.log_scale = tfe.Variable(tf.zeros(dims), name="log_scale")
-        self.shift = tfe.Variable(tf.zeros(dims), name="shift")
+        if self._do_shift:
+            self.log_scale = tfe.Variable(tf.zeros(dims), name="log_scale")
+            self.shift = tfe.Variable(tf.zeros(dims), name="shift")
+            self._forward = self._shift_and_scale_forward
+            self._inverse = self._shift_and_scale_inverse
+        else:
+            self.log_scale = tfe.Variable(tf.zeros(dims), name="log_scale")
+            self._forward = self._scale_forward
+            self._inverse = self._scale_inverse
 
     def call(self, z):
-        return tf.multiply(tf.exp(self.log_scale), z) + self.shift
+        return self._forward(z)
 
     def inverse(self, x):
-        return tf.multiply(tf.exp(-self.log_scale), x - self.shift)
+        return self._inverse(x)
 
     def log_jacobian_det(self, z):
         return tf.reduce_sum(self.log_scale) * tf.ones(tf.shape(z)[0])
+
+    def _shift_and_scale_forward(self, z):
+        return tf.multiply(tf.exp(self.log_scale), z) + self.shift
+
+    def _shift_and_scale_inverse(self, x):
+        return tf.multiply(tf.exp(-self.log_scale), x - self.shift)
+
+    def _scale_forward(self, z):
+        return tf.multiply(tf.exp(self.log_scale), z)
+
+    def _scale_inverse(self, x):
+        return tf.multiply(tf.exp(-self.log_scale), x)
 
 class AffineCoupling(NormalizingFlow):
     def __init__(self, shift_and_scale_model, split_dim, split_sizes, is_positive_shift=False):
@@ -396,14 +418,96 @@ class NonLinearSqueezing(SymplecticFlow):
         q, p = extract_q_p(x)
         q_prime = self._f(q)
         # Df(q)^{-1} = D(f^{-1}( q_prime ))
-        df_inverse = tf_gradients_ops.jacobian( self._f.inverse(q_prime), q_prime,use_pfor=False )
+        df_inverse = tf_gradients_ops.jacobian( self._f.inverse(q_prime), q_prime,use_pfor=True )
         return join_q_p(q_prime, tf.tensordot(df_inverse, p, [[4,5,6,7],[0,1,2,3]]))
 
     def inverse(self, z):
         q, p = extract_q_p(x)
         q_prime = self._f.inverse(q)
-        df = tf_gradients_ops.jacobian( self._f(q_prime), q_prime,use_pfor=False )
+        df = tf_gradients_ops.jacobian( self._f(q_prime), q_prime,use_pfor=True )
         return join_q_p(q_prime, tf.tensordot(df, p, [[4,5,6,7],[0,1,2,3]]))
+
+# class ActNorm(SymplecticFlow):
+#     def __init__(self):
+#         """At init, shifts activations to have zero center.
+#         Then, learnable shift."""
+#         super(ActNorm, self).__init__()
+#         self._shift = tfe.Variable(tf.zeros([2]), name="shift")
+#         self._called = False
+#
+#     def call(self, x):
+#         if self._called == False:
+#             # First time called, init to activations mean per channel
+#             self._shift = tf.reduce_mean(x, [0,1,2])
+#             self._called = True
+#         return x - self._shift
+#
+#     def inverse(self, z):
+#         return z + self._shift
+
+class ZeroCenter(SymplecticFlow):
+    def __init__(self, decay=0.99, debias=False, is_training=True):
+        """Shifts activations to have zero center. Add learnable offset.
+        call (forward) used during training, normalizes:
+        y = x - mean(x) + offset
+        while inverse de-normalizes:
+        y = x + mean(x) - offset
+
+        If training flag, compute running avg mean during call and use batch
+        mean to zero-center. When training false, use the moving mean to
+        zero-center.
+        Inverse method used for inference phase only, so assumes training=False.
+        Therefore, while tranining, call() and inverse() are not inverse of each
+        other.
+
+        For a rough implementation, see:
+        https://gluon.mxnet.io/chapter04_convolutional-neural-networks/cnn-batch-norm-scratch.html
+        """
+        super(ZeroCenter, self).__init__()
+        self._decay = decay
+        if debias:
+            raise NotImplementedError
+        # TODO: update debias
+        # self._debias = debias
+        # if self._debias:
+        #     self._num_updates = tfe.Variable(0,
+        #                                      name="num_updates",
+        #                                      dtype = tf.int64,
+        #                                      trainable=False)
+        self.is_training = is_training
+
+    def build(self, in_sz):
+        num_channels = in_sz[-1]
+        self._offset = tfe.Variable(tf.zeros([num_channels]), name="offset")
+        self._moving_mean = tfe.Variable(tf.zeros([num_channels]), name="mean",
+                                         trainable=False)
+
+    def call(self, x):
+        if self.is_training:
+            minibatch_mean_per_channel = tf.reduce_mean(x, [0,1,2])
+            # Need assign to update the variable. This code is not run more than
+            # once, but the assign op is added to the graph and run every time.
+            train_mean = tf.assign(self._moving_mean,
+                self._decay * self._moving_mean + \
+                (1.-self._decay) * minibatch_mean_per_channel)
+
+            # TODO: update debias
+            # if self._debias:
+            #     # Debias: divide by geometric sum, see Adam paper sec 3.
+            #     self._num_updates = self._num_updates + 1
+            #     self._moving_mean = self._moving_mean / \
+            #         (1.-self._decay ** tf.cast(self._num_updates, DTYPE))
+
+            # This runs the with block after the ops it depends on, so that
+            # moving_mean is updated every iteration.
+            with tf.control_dependencies([train_mean]):
+                return x - minibatch_mean_per_channel + self._offset
+        else:
+            return x - self._moving_mean + self._offset
+
+    def inverse(self, z):
+        assert not self.is_training
+        return z + self._moving_mean - self._offset
 
 # Neural networks: standard neural networks that implement arbitrary functions
 # used in the bijectors.
@@ -472,7 +576,7 @@ class MLP(tf.keras.Model):
 
 class IrrotationalMLP(tf.keras.Model):
     """NN for irrotational vector field. Impose the symmetry at the level of weights of MLP."""
-    def __init__(self, activation=tf.nn.tanh, width=512, rand_init=False):
+    def __init__(self, activation=tf.nn.tanh, width=512, rand_init=True):
         super(IrrotationalMLP, self).__init__()
         self.width = width
         self.rand_init = rand_init
@@ -583,8 +687,9 @@ class Chain(NormalizingFlow):
             z = bijector(z)
         return z
 
-    def inverse(self, x):
-        for bijector in reversed(self.bijectors):
+    def inverse(self, x, stop_at=0):
+        """stop_at is the bijector to stop at. Default = 0 means till end."""
+        for bijector in reversed(self.bijectors[stop_at:]):
             x = bijector.inverse(x)
         return x
 
@@ -594,6 +699,12 @@ class Chain(NormalizingFlow):
             ldj += bijector.log_jacobian_det(z)
             z = bijector(z)
         return ldj + self.bijectors[-1].log_jacobian_det(z)
+
+    def set_is_training(self, tf):
+        """Set is_training attribute of bijectors."""
+        for i, bijector in enumerate(self.bijectors):
+            if hasattr(bijector, 'is_training'):
+                self.bijectors[i].is_training = tf
 
 # TODO: update
 # class MultiScaleArchitecture(tf.keras.Model):
