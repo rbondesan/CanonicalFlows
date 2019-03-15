@@ -48,42 +48,6 @@ def test_get_phase_space_dim():
     print('test_get_phase_space_dim passed')
 test_get_phase_space_dim()
 
-def test_DiracDistribution():
-    sh = (3,2,1)
-    d = DiracDistribution(sh)
-    x = d.sample(4)
-    expected_shape = [4, 3, 2, 1]
-    assert x.shape.as_list() == expected_shape
-    assert_equal(x[0,...], x[1,...])
-    assert_equal(x[1,...], x[2,...])
-    assert_equal(x[2,...], x[3,...])
-    print('test_DiracDistribution passed')
-test_DiracDistribution()
-
-def testBaseDistributionActionAngle():
-    settings = {'d': 2, 'num_particles': 3}
-    # Default: exponential
-    d = BaseDistributionActionAngle(settings)
-    z = d.sample(15)
-    expected_shape = [15, settings['d'], settings['num_particles'], 2]
-    assert z.shape.as_list() == expected_shape
-    # Default: Dirac
-    d = BaseDistributionActionAngle(settings,action_dist='dirac')
-    z = d.sample(15)
-    expected_shape = [15, settings['d'], settings['num_particles'], 2]
-    assert z.shape.as_list() == expected_shape
-    print('testBaseDistributionActionAngle passed')
-testBaseDistributionActionAngle()
-
-def testBaseDistributionIntegralsOfMotion():
-    settings = {'d': 2, 'num_particles': 3}
-    d = BaseDistributionIntegralsOfMotion(settings)
-    z = d.sample(15)
-    expected_shape = [15, settings['d'], settings['num_particles'], 2]
-    assert z.shape.as_list() == expected_shape
-    print('testBaseDistributionIntegralsOfMotion passed')
-testBaseDistributionIntegralsOfMotion()
-
 # def test_indicator_fcn():
 #     x = tf.reshape(tf.range(16), shape=(2,2,2,2))
 #     low = 0

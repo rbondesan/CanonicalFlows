@@ -270,7 +270,7 @@ class LinearSymplecticTwoByTwo(SymplecticFlow):
 
     def build(self, input_size):
         """Initialize to identity or random"""
-        input_size = input_size.as_list()
+        #input_size = input_size.as_list()
         dof = input_size[1] * input_size[2]
         s_shape = [dof, 1, 1]
         if self.rand_init:
@@ -295,6 +295,9 @@ class LinearSymplecticTwoByTwo(SymplecticFlow):
         return tf.reshape(res, shape=x_shape)
 
     def inverse(self, x):
+        if self.built == False:
+            self.build(tf.shape(x))
+            self.built = True
         x_shape = tf.shape(x)
         # x_shape = [N,d,n,2] where q=[:,:,:,0], p=[:,:,:,1]
         x = tf.reshape(x, [x_shape[0], x_shape[1]*x_shape[2], 2])
@@ -446,7 +449,7 @@ class NonLinearSqueezing(SymplecticFlow):
 #         return z + self._shift
 
 class ZeroCenter(SymplecticFlow):
-    def __init__(self, decay=0.99, debias=False, is_training=True):
+    def __init__(self, decay=0.99, debias=False, is_training_forward=True):
         """Shifts activations to have zero center. Add learnable offset.
         call (forward) used during training, normalizes:
         y = x - mean(x) + offset
@@ -456,9 +459,13 @@ class ZeroCenter(SymplecticFlow):
         If training flag, compute running avg mean during call and use batch
         mean to zero-center. When training false, use the moving mean to
         zero-center.
-        Inverse method used for inference phase only, so assumes training=False.
+        In this case, inverse method used for inference phase only, so assumes training=False.
         Therefore, while tranining, call() and inverse() are not inverse of each
         other.
+        Instead, if one uses inverse method for training, the roles are reversed.
+        
+        So one should NOT MIX forward and inverse during training. This is ensured
+        by the flag is_training_forward True or False.
 
         For a rough implementation, see:
         https://gluon.mxnet.io/chapter04_convolutional-neural-networks/cnn-batch-norm-scratch.html
@@ -474,7 +481,8 @@ class ZeroCenter(SymplecticFlow):
         #                                      name="num_updates",
         #                                      dtype = tf.int64,
         #                                      trainable=False)
-        self.is_training = is_training
+        self.is_training = True
+        self.is_training_forward = is_training_forward
 
     def build(self, in_sz):
         num_channels = in_sz[-1]
@@ -483,32 +491,50 @@ class ZeroCenter(SymplecticFlow):
                                          trainable=False)
 
     def call(self, x):
-        if self.is_training:
-            minibatch_mean_per_channel = tf.reduce_mean(x, [0,1,2])
-            # Need assign to update the variable. This code is not run more than
-            # once, but the assign op is added to the graph and run every time.
-            train_mean = tf.assign(self._moving_mean,
-                self._decay * self._moving_mean + \
-                (1.-self._decay) * minibatch_mean_per_channel)
-
-            # TODO: update debias
-            # if self._debias:
-            #     # Debias: divide by geometric sum, see Adam paper sec 3.
-            #     self._num_updates = self._num_updates + 1
-            #     self._moving_mean = self._moving_mean / \
-            #         (1.-self._decay ** tf.cast(self._num_updates, DTYPE))
-
+        if self.is_training and self.is_training_forward:
+            train_mean, minibatch_mean_per_channel = self.update_moving_mean(x)
             # This runs the with block after the ops it depends on, so that
             # moving_mean is updated every iteration.
             with tf.control_dependencies([train_mean]):
                 return x - minibatch_mean_per_channel + self._offset
+        elif not self.is_training and not self.is_training_forward:
+            # Used in prediction when training with inverse
+            return x + self._moving_mean - self._offset
         else:
-            return x - self._moving_mean + self._offset
+            raise ValueError('Should not be used')
 
     def inverse(self, z):
-        assert not self.is_training
-        return z + self._moving_mean - self._offset
+        if self.built == False:
+            self.build(tf.shape(z))
+            self.built = True
+        
+        if self.is_training and not self.is_training_forward:
+            train_mean, minibatch_mean_per_channel = self.update_moving_mean(z)
+            # This runs the with block after the ops it depends on, so that
+            # moving_mean is updated every iteration.
+            with tf.control_dependencies([train_mean]):
+                return z - minibatch_mean_per_channel + self._offset
+        elif not self.is_training and self.is_training_forward:
+            # Used in prediction when training with forward
+            return z + self._moving_mean - self._offset
+        else:
+            raise ValueError('Should not be used')
 
+    def update_moving_mean(self, x):
+        minibatch_mean_per_channel = tf.reduce_mean(x, [0,1,2])
+        # Need assign to update the variable. This code is not run more than
+        # once, but the assign op is added to the graph and run every time.
+        train_mean = tf.assign(self._moving_mean,
+                               self._decay * self._moving_mean + \
+                               (1.-self._decay) * minibatch_mean_per_channel)
+        # TODO: update debias
+        # if self._debias:
+        #     # Debias: divide by geometric sum, see Adam paper sec 3.
+        #     self._num_updates = self._num_updates + 1
+        #     self._moving_mean = self._moving_mean / \
+        #         (1.-self._decay ** tf.cast(self._num_updates, DTYPE))
+        return train_mean, minibatch_mean_per_channel
+    
 # Neural networks: standard neural networks that implement arbitrary functions
 # used in the bijectors.
 class MLP(tf.keras.Model):
@@ -528,6 +554,7 @@ class MLP(tf.keras.Model):
         d = 512
         self.dense1 = tf.keras.layers.Dense(d, activation=activation)
         self.dense2 = tf.keras.layers.Dense(d, activation=activation)
+        self.flatten = tf.keras.layers.Flatten()
         self.out_shape = out_shape
 
     def build(self, input_shape):
@@ -556,7 +583,7 @@ class MLP(tf.keras.Model):
             assert False, "Wrong mode"
 
     def forward(self, x):
-        return self.dense3( self.dense2( self.dense1(tf.layers.flatten(x)) ) )
+        return self.dense3( self.dense2( self.dense1(self.flatten(x)) ) )
 
     def call_symplectic_shift(self, x):
         def f(x):
@@ -581,6 +608,7 @@ class IrrotationalMLP(tf.keras.Model):
         self.width = width
         self.rand_init = rand_init
         self.act = activation
+        self.flatten = tf.keras.layers.Flatten()
 
     def build(self, input_shape):
         input_shape = input_shape.as_list()
@@ -600,7 +628,7 @@ class IrrotationalMLP(tf.keras.Model):
 
     def call(self, x):
         x_shape = tf.shape(x)
-        x = tf.layers.flatten(x)
+        x = self.flatten(x)
         x = self.act(tf.matmul(x, self.W1) + self.b1) # x.shape = (batch, width)
         x = self.act(tf.multiply(self.W2, x) + self.b2) # x.shape = (batch, width)
         x = tf.matmul(x, self.W1, transpose_b=True) + self.b3  # x.shape = (batch, input_dimension)
@@ -619,9 +647,10 @@ class MLPHamiltonian(tf.keras.Model):
                                             kernel_initializer=tf.keras.initializers.Orthogonal())
         self.bn2 = tf.keras.layers.BatchNormalization()
         self.dense3 = tf.keras.layers.Dense(1)
+        self.flatten = tf.keras.layers.Flatten()
 
     def call(self, x):
-        x = tf.layers.flatten(x)
+        x = self.flatten(x)
         x = self.bn1( self.dense1(x) )
         x = self.bn2( self.dense2(x) )
         x = self.dense3(x)

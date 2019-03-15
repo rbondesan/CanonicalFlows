@@ -16,14 +16,14 @@ NP_DTYPE=np.float32
 # Tensor manipulation
 def extract_q_p(x):
     """split along the channel axis: q = x[...,0], p = x[...,1]"""
-    tf.assert_equal(tf.shape(x)[-1], tf.constant(2))
+    #tf.assert_equal(tf.shape(x)[-1], tf.constant(2))
     # Use :: to keep number of dimensions
     return x[...,::2], x[...,1::2]
 
 def join_q_p(q, p):
     """join q,p along channel axis"""
-    tf.assert_equal(tf.shape(q), tf.shape(p))
-    tf.assert_equal(tf.shape(q)[-1], tf.constant(1))
+    #tf.assert_equal(tf.shape(q), tf.shape(p))
+    #tf.assert_equal(tf.shape(q)[-1], tf.constant(1))
     return tf.concat([q, p], -1)
 
 def get_phase_space_dim(sh):
