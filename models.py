@@ -500,6 +500,9 @@ class ZeroCenter(SymplecticFlow):
         elif not self.is_training and not self.is_training_forward:
             # Used in prediction when training with inverse
             return x + self._moving_mean - self._offset
+        elif not self.is_training and self.is_training_forward:
+            # Prediction - standard batchnorm
+            return x - self._moving_mean + self._offset
         else:
             raise ValueError('Should not be used')
 
@@ -517,6 +520,9 @@ class ZeroCenter(SymplecticFlow):
         elif not self.is_training and self.is_training_forward:
             # Used in prediction when training with forward
             return z + self._moving_mean - self._offset
+        elif not self.is_training and not self.is_training_forward:
+            # Prediction - standard batchnorm
+            return z - self._moving_mean + self._offset
         else:
             raise ValueError('Should not be used')
 
