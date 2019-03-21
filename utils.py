@@ -87,16 +87,17 @@ def make_train_op(settings, loss, step):
         if settings['visualize']:
             tf.summary.scalar("lr", learning_rate)
         optimizer = tf.train.AdamOptimizer(learning_rate)
-        gradients = optimizer.compute_gradients(loss=loss)
+        grads_and_vars = optimizer.compute_gradients(loss=loss)
+        if 'grad_clip_norm' in settings:
+            grads_and_vars = [(tf.clip_by_norm(gv[0], settings['grad_clip_norm']), 
+                               gv[1]) for gv in grads_and_vars]
+        
         if settings['visualize']:
-            for gradient, variable in gradients:
+            for gradient, variable in grads_and_vars:
                 tf.summary.scalar("gradients/" + variable.name.replace(':','_'), tf.norm(gradient))
                 tf.summary.scalar("variable/" + variable.name.replace(':','_'), tf.norm(variable))
-                if "log_scale" in variable.name:
-                    # Add histogram
-                    print('adding hist')
-                    tf.summary.histogram(variable.name.replace(':','_'), variable)
-    return optimizer.apply_gradients(gradients, global_step=step)
+    
+    return optimizer.apply_gradients(grads_and_vars, global_step=step)
 
 def compute_jacobian_eager(model, x):
     """Test if model is simplectic at x.
