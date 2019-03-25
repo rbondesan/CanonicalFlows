@@ -64,15 +64,10 @@ T = Chain(stack)
 
 step = tf.get_variable("global_step", [], tf.int64, tf.zeros_initializer(), trainable=False)
 
-with tf.Session() as sess:
-
-    z = make_data(settings, sess)
-
+z = make_data(settings)
 loss = make_loss(settings, T, z)
 
 train_op = make_train_op(settings, loss, step)
-
-# sess.run(tf.global_variables_initializer())
 
 
 # Set the ZeroCenter bijectors to training mode:

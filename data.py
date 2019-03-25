@@ -8,7 +8,7 @@ from utils import join_q_p
 DTYPE = tf.float32
 NP_DTYPE=np.float32
 
-def make_data(settings, sess):
+def make_data(settings):
     """Depending on the type of problem the return value is a tf.Tensor or a
     Dataset iteraor of size minibatch."""
 
@@ -30,13 +30,15 @@ def make_data(settings, sess):
         if settings['dataset_size'] == float("inf"):
             z = sampler.sample(settings['minibatch_size'])
         elif settings['dataset_size'] == settings['minibatch_size']:
-            z = sess.run( sampler.sample(settings['minibatch_size']) )
+            with tf.Session() as sess:
+                z = sess.run(sampler.sample(settings['minibatch_size']))
             z = tf.constant(z)
         else:
             # tf.data.Dataset. Create infinite dataset by repeating and
             # shuffling a finite number of samples.
             # Create in-memory data, assuming it fits...
-            Z = sess.run( sampler.sample(settings['dataset_size']) )
+            with tf.Session() as sess:
+                Z = sess.run(sampler.sample(settings['dataset_size']))
             dataset = tf.data.Dataset.from_tensor_slices(Z.astype(NP_DTYPE))
             # repeat the dataset indefinetely
             dataset = dataset.repeat()
