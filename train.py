@@ -1,11 +1,15 @@
+
 import numpy as np
 import tensorflow as tf
 
+from inspect import getmembers, isfunction, isclass, getmodule
+from tensorflow.contrib.training import HParams
 
 from models import *
-from hamiltonians import parameterized_neumann
+import hamiltonians
+import losses
+import data
 from utils import make_train_op
-from losses import make_loss
 from data import make_data
 
 
@@ -14,66 +18,82 @@ NP_DTYPE=np.float32
 
 tf.set_random_seed(0)
 
-import warnings
-warnings.filterwarnings("ignore")
+# Hamiltonian flags
+tf.flags.DEFINE_enum('hamiltonian', 'neumann_hamiltonian',
+                     [f[0] for f in getmembers(hamiltonians, isfunction) if getmodule(f[1]) is hamiltonians],
+                     'Hamiltonian function.')
+tf.flags.DEFINE_integer("num_particles", 1, "Number of particles.")
+tf.flags.DEFINE_integer("d", 3, "Space dimension.")
 
-frequencies = [.1, .2, .3]
-settings = {
-    'frequencies': frequencies,
-    'hamiltonian': parameterized_neumann(frequencies),
-    'd': 3,                    # space dimension
-    'num_particles': 1,        # number of particles
-    'minibatch_size': 2**7,    # Mini batch size
-    'dataset_size': 2**13,      # Set to float("inf") for keeping sampling.
-    'num_stacks_bijectors': 4, # Number of bijectors
-    'log_dir' : "/tmp/log/im_tests/neumann-3/with-grad-clip",
-    'ckpt_freq': 1000,
-    'train_iters': 2,
-    'visualize': True,
-#    'grad_clip_norm': 1e-10, # clip norm to val. Comment for no gradient clipping
-    'starter_learning_rate': 0.00001,
-    'decay_lr': "piecewise",
-    'boundaries': [20000, 200000], # for piecewise decay
-    'values': [1e-5, 1e-6, 1e-6],  # for piecewise decay
-    'min_learning_rate': 1e-6,
-#     'decay_steps': 25000,  # ignored if decay_lr False
-#     'decay_rate': 0.5,     # ignored if decay_lr False (decayed_learning_rate = learning_rate *
-#                            #                            decay_rate ^ (global_step / decay_steps))
-    'loss': "dKdphi",
-    'base_dist': "action_dirac_angle",
-#    'value_actions': [0.1324, 0.0312, 0.2925],
-#    'elastic_net_coeff': 1.
-    }
+# Model flags
+tf.flags.DEFINE_enum('base_dist', 'BaseDistributionActionAngle',
+                     [f[0] for f in getmembers(data, isclass) if getmodule(f[1]) is data],
+                     'Base distribution.')
+tf.flags.DEFINE_enum('action_dist', 'dirac', ['dirac', 'exponential', 'normal'], 'Distribution of actions.')
+tf.flags.DEFINE_integer("num_stacks_bijectors", 4, "Number of stacks of bijectors.")
+tf.flags.DEFINE_enum("loss", "dKdphi",
+                     [f[0] for f in getmembers(losses, isfunction) if getmodule(f[1]) is losses],
+                     'Loss function')
 
-# Choose a batch of actions: needs to be divisor of dataset_size or minibatch_size if infinite dataset
-r = np.random.RandomState(seed=0)
-num_samples_actions = 2 # number of distinct actions (Liouville torii)
-sh = (num_samples_actions, settings['d'], settings['num_particles'], 1)
-settings['value_actions'] = r.rand(*sh).astype(NP_DTYPE)
+# Training flags
+tf.flags.DEFINE_string("logdir", "/tmp/log/im_tests/neumann-3/with-grad-clip", "Directory to write logs.")
+tf.flags.DEFINE_integer('dataset_size', 2**13, 'Set to float("inf") to keep sampling.')
+tf.flags.DEFINE_integer('ckpt_freq', 1000, 'Checkpoint frequency')
+tf.flags.DEFINE_boolean('visualize', True, 'Produce visualization.')
+tf.flags.DEFINE_string("hparams", "", 'Comma separated list of "name=value" pairs e.g. "--hparams=learning_rate=0.3"')
 
 
-
-# To account for periodicity start with oscillator flow
-stack = [OscillatorFlow()]
-for i in range(settings['num_stacks_bijectors']):
-    stack.extend([ZeroCenter(),
-                  LinearSymplecticTwoByTwo(),
-                  SymplecticAdditiveCoupling(shift_model=IrrotationalMLP())])
-                  #SymplecticAdditiveCoupling(shift_model=MLP())])
-T = Chain(stack)
-
-step = tf.get_variable("global_step", [], tf.int64, tf.zeros_initializer(), trainable=False)
-
-z = make_data(settings)
-loss = make_loss(settings, T, z)
-
-train_op = make_train_op(settings, loss, step)
+FLAGS = tf.flags.FLAGS
 
 
-# Set the ZeroCenter bijectors to training mode:
-for i, bijector in enumerate(T.bijectors):
-    if hasattr(bijector, 'is_training'):
-        T.bijectors[i].is_training = True
+def main():
 
-tf.contrib.training.train(train_op, logdir=settings['log_dir'], save_checkpoint_secs=60)
+    hparams = HParams(minibatch_size=2**7, starter_learning_rate=0.00001, decay_lr="piecewise",
+                      boundaries=[20000, 200000], values=[1e-5, 1e-6, 1e-6], min_learning_rate=1e-6)
+    hparams.parse(FLAGS.hparams)
 
+    # Choose a batch of actions: needs to be divisor of dataset_size or minibatch_size if infinite dataset
+    r = np.random.RandomState(seed=0)
+    num_samples_actions = 2  # number of distinct actions (Liouville torii)
+    sh = (num_samples_actions, FLAGS.d, FLAGS.num_particles, 1)
+    value_actions = r.rand(*sh).astype(NP_DTYPE)
+
+    # To account for periodicity start with oscillator flow
+    stack = [OscillatorFlow()]
+    for i in range(FLAGS.num_stacks_bijectors):
+        stack.extend([ZeroCenter(),
+                      LinearSymplecticTwoByTwo(),
+                      SymplecticAdditiveCoupling(shift_model=IrrotationalMLP())])
+        # SymplecticAdditiveCoupling(shift_model=MLP())])
+    T = Chain(stack)
+
+    step = tf.get_variable("global_step", [], tf.int64, tf.zeros_initializer(), trainable=False)
+
+    z = make_data(value_actions)
+
+    with tf.name_scope("canonical_transformation"):
+        x = T(z)
+        if FLAGS.visualize:
+            q,p = extract_q_p(x)
+            tf.summary.histogram("q", q)
+            tf.summary.histogram("p", p)
+        K = eval(FLAGS.hamiltonian)(x)
+        if FLAGS.visualize:
+            tf.summary.histogram('K-Hamiltonian', K)
+
+    loss = eval(FLAGS.loss)(K, z)
+    tf.summary.scalar('loss', loss)
+
+    train_op = make_train_op(loss, step)
+
+    # Set the ZeroCenter bijectors to training mode:
+    for i, bijector in enumerate(T.bijectors):
+        if hasattr(bijector, 'is_training'):
+            T.bijectors[i].is_training = True
+
+    tf.contrib.training.train(train_op, logdir=FLAGS.logdir, save_checkpoint_secs=60)
+
+
+if __name__ == '__main__':
+    print(dir(FLAGS))
+    tf.app.run(main)

@@ -6,39 +6,35 @@ import numpy as np
 from utils import join_q_p
 
 DTYPE = tf.float32
-NP_DTYPE=np.float32
+NP_DTYPE = np.float32
+FLAGS = tf.flags.FLAGS
 
-def make_data(settings):
+def make_data(value_actions=None):
     """Depending on the type of problem the return value is a tf.Tensor or a
     Dataset iteraor of size minibatch."""
 
     with tf.name_scope("data"):
 
-        name = settings['base_dist']
-        if name == "action_dirac_angle":
-            sampler = BaseDistributionActionAngle(settings, action_dist='dirac')
-        elif name == "action_exponential_angle":
-            sampler = BaseDistributionActionAngle(settings, action_dist='exponential')
-        elif name == "normal":
-            sampler = BaseDistributionNormal(settings)
-        elif name == "iom":
-            sampler = BaseDistributionIntegralsOfMotion(settings)
+        if FLAGS.base_dist == 'BaseDistributionActionAngle':
+            sampler = eval(FLAGS.base_dist)(action_dist=FLAGS.action_dist)
+        elif FLAGS.base_dist == 'DiracDistribution':
+            sampler = eval(FLAGS.base_dist)(action_dist=value_actions)
         else:
-            raise NameError('base_dist %s not implemented', name)
+            sampler = eval(FLAGS.base_dist)
 
         # Create data: z is the minibatch
-        if settings['dataset_size'] == float("inf"):
-            z = sampler.sample(settings['minibatch_size'])
-        elif settings['dataset_size'] == settings['minibatch_size']:
+        if FLAGS.dataset_size == float("inf"):
+            z = sampler.sample(FLAGS.minibatch_size)
+        elif FLAGS.dataset_size == FLAGS.minibatch_size:
             with tf.Session() as sess:
-                z = sess.run(sampler.sample(settings['minibatch_size']))
+                z = sess.run(sampler.sample(FLAGS.minibatch_size))
             z = tf.constant(z)
         else:
             # tf.data.Dataset. Create infinite dataset by repeating and
             # shuffling a finite number of samples.
             # Create in-memory data, assuming it fits...
             with tf.Session() as sess:
-                Z = sess.run(sampler.sample(settings['dataset_size']))
+                Z = sess.run(sampler.sample(FLAGS.dataset_size))
             dataset = tf.data.Dataset.from_tensor_slices(Z.astype(NP_DTYPE))
             # repeat the dataset indefinetely
             dataset = dataset.repeat()
@@ -47,7 +43,7 @@ def make_data(settings):
             # Specify maximum number of elements for prefetching.
             # dataset = dataset.prefetch(3 * settings['batch_size'])
             # Specify the minibatch size
-            dataset = dataset.batch(settings['minibatch_size'])
+            dataset = dataset.batch(FLAGS.minibatch_size)
             data_iterator = dataset.make_one_shot_iterator()
             z = data_iterator.get_next()
 
@@ -65,6 +61,7 @@ def make_data(settings):
         # z = tf.random_normal(shape=sh, mean=0., stddev=stddev)
 
     return z
+
 
 # Distributions
 class DiracDistribution():
@@ -92,9 +89,10 @@ class DiracDistribution():
         assert N % self.num_samples_actions == 0, "N must be a multiple of num_samples_actions"
         return tf.tile(self.values, [N//self.num_samples_actions,1,1,1])
 
+
 class BaseDistributionActionAngle():
-    def __init__(self, settings, action_dist='exponential'):
-        sh = (settings['d'], settings['num_particles'], 1)
+    def __init__(self, action_dist='exponential'):
+        sh = (FLAGS.d, FLAGS.num_particles, 1)
         # Actions
         if action_dist == 'exponential':
             self.base_dist_u = tfd.Independent(tfd.Exponential(rate=tf.ones(sh, DTYPE)),
@@ -104,8 +102,8 @@ class BaseDistributionActionAngle():
         elif action_dist == 'dirac':
             self.base_dist_u = DiracDistribution(sh, settings['value_actions'])
         # Angles
-        if 'high_phi' in settings:
-            high_phi = settings['high_phi']
+        if 'high_phi' in FLAGS:
+            high_phi = FLAGS.high_phi
         else:
             high_phi = 2*np.pi
         self.base_dist_phi = tfd.Independent(tfd.Uniform(low=tf.zeros(sh, DTYPE),
@@ -117,12 +115,13 @@ class BaseDistributionActionAngle():
         phi = self.base_dist_phi.sample(N)
         return join_q_p(phi, u)
 
+
 class BaseDistributionNormal():
-    def __init__(self, settings):
-        sh = [settings['d'], settings['num_particles'], 2]
-        if 'truncated_range' in settings:
-            low = -settings['truncated_range']*tf.ones(sh, DTYPE)
-            high = settings['truncated_range']*tf.ones(sh, DTYPE)
+    def __init__(self):
+        sh = [FLAGS.d, FLAGS.num_particles, 2]
+        if 'truncated_range' in FLAGS:
+            low = - FLAGS.truncated_range * tf.ones(sh, DTYPE)
+            high = FLAGS.truncated_range * tf.ones(sh, DTYPE)
             self.base_dist_z = tfd.TruncatedNormal(loc=tf.zeros(sh, DTYPE),
                 scale=1.0, low=low, high=high)
         else:
@@ -131,8 +130,9 @@ class BaseDistributionNormal():
     def sample(self, N):
         return self.base_dist_z.sample(N)
 
+
 class BaseDistributionIntegralsOfMotion():
-    def __init__(self, settings):
+    def __init__(self):
         """In the integrals of motion basis and their conjugate (F,psi), we
         can choose F_1 = H, so that the distribution is exponential for the first
         "momentum" variable and uniform for all the others. Here use standard
@@ -140,12 +140,12 @@ class BaseDistributionIntegralsOfMotion():
         base-distribution-sampler part of the model"""
         # F
         self.base_dist_F1 = tfd.Exponential(rate=1.)
-        sh = (settings['d'] * settings['num_particles'] - 1,)
+        sh = (FLAGS.d * FLAGS.num_particles - 1,)
         self.base_dist_otherF = tfd.Independent(tfd.Uniform(low=tf.zeros(sh, DTYPE),
                                                             high=tf.ones(sh, DTYPE)),
                                                 reinterpreted_batch_ndims=len(sh))
         # Psi
-        self.sh = [settings['d'], settings['num_particles'], 1]
+        self.sh = [FLAGS.d, FLAGS.num_particles, 1]
         self.base_dist_Psi = tfd.Independent(tfd.Uniform(low=tf.zeros(self.sh, DTYPE),
                                                          high=tf.ones(self.sh, DTYPE)),
                                              reinterpreted_batch_ndims=len(self.sh))

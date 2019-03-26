@@ -48,22 +48,25 @@ def free(x):
     return tf.squeeze(0.5 * tf.reduce_sum(tf.square(p), axis=1))
 
 # Integrable many particle
-def parameterized_neumann(ks):
-    def neumann_hamiltonian(x):
-        """1/4 \sum_{i,j}^N J_{ij}^2 + 1/2 \sum_{i=1}^N k_i q_i^2"""
-        # ks is of shape (d,)
-        assert x.shape[2] == 1
-        q, p = extract_q_p(x)
-        q = q[:,:,0,0]
-        p = p[:,:,0,0]
-        # q,p of shape (N,d)
-        J = tf.einsum('ai,aj->aij', q, p)
-        J -= tf.transpose(J, perm=[0,2,1])
-        # J is of shape (N,d,d)
-        return tf.squeeze(
-                0.25 * tf.reduce_sum(tf.square(J), axis=[1,2]) + \
-                0.5 * tf.reduce_sum( tf.multiply(ks, tf.square(q)), axis=1 ))
-    return neumann_hamiltonian
+
+def neumann_hamiltonian(x, ks=[.1, .2, .3]):
+    """1/4 \sum_{i,j}^d J_{ij}^2 + 1/2 \sum_{i=1}^d k_i q_i^2"""
+    # ks is of shape (d,)
+    assert x.shape[2] == 1
+    q, p = extract_q_p(x)
+    q = q[:,:,0,0]
+    p = p[:,:,0,0]
+    # q,p of shape (N,d)
+    assert p.shape[1] == len(ks)
+    assert q.shape[1] == len(ks)
+
+    J = tf.einsum('ai,aj->aij', q, p)
+    J -= tf.transpose(J, perm=[0,2,1])
+    # J is of shape (N,d,d)
+    return tf.squeeze(
+            0.25 * tf.reduce_sum(tf.square(J), axis=[1,2]) + \
+            0.5 * tf.reduce_sum(tf.multiply(ks, tf.square(q)), axis=1))
+
 
 def fpu_hamiltonian(x, alpha=1, beta=0):
     """\sum_{i=1}^N 1/2 [p_i^2 + (q_{i} - q_{i+1})^2] + \alpha/3 (q_{i} - q_{i+1})^3 + \beta/4 (q_{i} - q_{i+1})^4

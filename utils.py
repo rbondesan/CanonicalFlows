@@ -12,6 +12,7 @@ from tensorflow.python.ops.parallel_for import gradients as tf_gradients_ops
 
 DTYPE = tf.float32
 NP_DTYPE=np.float32
+FLAGS = tf.flags.FLAGS
 
 # Tensor manipulation
 def extract_q_p(x):
@@ -71,28 +72,28 @@ def normsq_nobatch(x):
 #     p_shifted = tf.manip.roll(p, shift=1, axis=1)
 #     return join_q_p(q_shifted, p_shifted)
 
-def make_train_op(settings, loss, step):
+def make_train_op(loss, step):
     with tf.name_scope("train"):
-        starter_learning_rate = settings['starter_learning_rate']
-        if settings['decay_lr'] == "exp":
-            learning_rate = tf.train.exponential_decay(starter_learning_rate, step, settings['decay_steps'],
-                                                       settings['decay_rate'], staircase=False)
-        elif settings['decay_lr'] == "piecewise":
-            boundaries = settings['boundaries']
-            values = settings['values']
+        starter_learning_rate = FLAGS.starter_learning_rate
+        if FLAGS.decay_lr == "exp":
+            learning_rate = tf.train.exponential_decay(starter_learning_rate, step, FLAGS.decay_steps,
+                                                       FLAGS.decay_rate, staircase=False)
+        elif FLAGS.decay_lr == "piecewise":
+            boundaries = FLAGS.boundaries
+            values = FLAGS.values
             learning_rate = tf.train.piecewise_constant(step, boundaries, values)
         else:
             learning_rate = tf.constant(starter_learning_rate)
-        learning_rate = tf.maximum(learning_rate, settings['min_learning_rate']) # clip
-        if settings['visualize']:
+        learning_rate = tf.maximum(learning_rate, FLAGS.min_learning_rate) # clip
+        if FLAGS.visualize:
             tf.summary.scalar("lr", learning_rate)
         optimizer = tf.train.AdamOptimizer(learning_rate)
         grads_and_vars = optimizer.compute_gradients(loss=loss)
-        if 'grad_clip_norm' in settings:
-            grads_and_vars = [(tf.clip_by_norm(gv[0], settings['grad_clip_norm']), 
+        if 'grad_clip_norm' in FLAGS:
+            grads_and_vars = [(tf.clip_by_norm(gv[0], FLAGS.grad_clip_norm),
                                gv[1]) for gv in grads_and_vars]
         
-        if settings['visualize']:
+        if FLAGS.visualize:
             for gradient, variable in grads_and_vars:
                 tf.summary.scalar("gradients/" + variable.name.replace(':','_'), tf.norm(gradient))
                 tf.summary.scalar("variable/" + variable.name.replace(':','_'), tf.norm(variable))
@@ -149,17 +150,17 @@ def generate_and_save_images(model, epoch, test_input, sess, save=False):
         plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
     plt.show()
 
-def checkpoint_save(settings, optimizer, model, optimizer_step):
-    checkpoint_dir = settings['log_dir']
+def checkpoint_save(optimizer, model, optimizer_step):
+    checkpoint_dir = FLAGS.log_dir
     checkpoint_prefix = os.path.join(checkpoint_dir, name)
     root = tfe.Checkpoint(optimizer=optimizer,
                           model=model,
                           optimizer_step=optimizer_step)
     root.save(file_prefix=checkpoint_prefix)
 
-def checkpoint_restore(settings, model, optimizer=None, optimizer_step=None):
-    name = settings['hamiltonian'].__name__
-    for key, val in settings.items():
+def checkpoint_restore(model, optimizer=None, optimizer_step=None):
+    name = FLAGS.hamiltonian
+    for key, val in FLAGS.items():
         if key == 'hamiltonian':
             continue
         else:
