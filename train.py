@@ -46,17 +46,14 @@ tf.flags.DEFINE_string("hparams", "", 'Comma separated list of "name=value" pair
 FLAGS = tf.flags.FLAGS
 
 
-def main():
+def main(argv):
 
     hparams = HParams(minibatch_size=2**7, starter_learning_rate=0.00001, decay_lr="piecewise",
-                      boundaries=[20000, 200000], values=[1e-5, 1e-6, 1e-6], min_learning_rate=1e-6)
+                      boundaries=[20000, 200000], boundary_values=[1e-5, 1e-6, 1e-6],
+                      min_learning_rate=1e-6, grad_clip_norm=None)
     hparams.parse(FLAGS.hparams)
 
-    # Choose a batch of actions: needs to be divisor of dataset_size or minibatch_size if infinite dataset
-    r = np.random.RandomState(seed=0)
-    num_samples_actions = 2  # number of distinct actions (Liouville torii)
-    sh = (num_samples_actions, FLAGS.d, FLAGS.num_particles, 1)
-    value_actions = r.rand(*sh).astype(NP_DTYPE)
+    z = make_data()
 
     # To account for periodicity start with oscillator flow
     stack = [OscillatorFlow()]
@@ -66,10 +63,6 @@ def main():
                       SymplecticAdditiveCoupling(shift_model=IrrotationalMLP())])
         # SymplecticAdditiveCoupling(shift_model=MLP())])
     T = Chain(stack)
-
-    step = tf.get_variable("global_step", [], tf.int64, tf.zeros_initializer(), trainable=False)
-
-    z = make_data(value_actions)
 
     with tf.name_scope("canonical_transformation"):
         x = T(z)
@@ -84,7 +77,8 @@ def main():
     loss = eval(FLAGS.loss)(K, z)
     tf.summary.scalar('loss', loss)
 
-    train_op = make_train_op(loss, step)
+    step = tf.get_variable("global_step", [], tf.int64, tf.zeros_initializer(), trainable=False)
+    train_op = make_train_op(hparams, loss, step)
 
     # Set the ZeroCenter bijectors to training mode:
     for i, bijector in enumerate(T.bijectors):
@@ -95,5 +89,4 @@ def main():
 
 
 if __name__ == '__main__':
-    print(dir(FLAGS))
     tf.app.run(main)

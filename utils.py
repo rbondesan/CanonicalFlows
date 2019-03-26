@@ -72,25 +72,25 @@ def normsq_nobatch(x):
 #     p_shifted = tf.manip.roll(p, shift=1, axis=1)
 #     return join_q_p(q_shifted, p_shifted)
 
-def make_train_op(loss, step):
+def make_train_op(hparams, loss, step):
     with tf.name_scope("train"):
-        starter_learning_rate = FLAGS.starter_learning_rate
-        if FLAGS.decay_lr == "exp":
-            learning_rate = tf.train.exponential_decay(starter_learning_rate, step, FLAGS.decay_steps,
-                                                       FLAGS.decay_rate, staircase=False)
-        elif FLAGS.decay_lr == "piecewise":
-            boundaries = FLAGS.boundaries
-            values = FLAGS.values
+        starter_learning_rate = hparams.starter_learning_rate
+        if hparams.decay_lr == "exp":
+            learning_rate = tf.train.exponential_decay(starter_learning_rate, step, hparams.ecay_steps,
+                                                       hparams.decay_rate, staircase=False)
+        elif hparams.decay_lr == "piecewise":
+            boundaries = hparams.boundaries
+            values = hparams.boundary_values
             learning_rate = tf.train.piecewise_constant(step, boundaries, values)
         else:
             learning_rate = tf.constant(starter_learning_rate)
-        learning_rate = tf.maximum(learning_rate, FLAGS.min_learning_rate) # clip
+        learning_rate = tf.maximum(learning_rate, hparams.min_learning_rate) # clip
         if FLAGS.visualize:
             tf.summary.scalar("lr", learning_rate)
         optimizer = tf.train.AdamOptimizer(learning_rate)
         grads_and_vars = optimizer.compute_gradients(loss=loss)
-        if 'grad_clip_norm' in FLAGS:
-            grads_and_vars = [(tf.clip_by_norm(gv[0], FLAGS.grad_clip_norm),
+        if hparams.grad_clip_norm is not None:
+            grads_and_vars = [(tf.clip_by_norm(gv[0], hparams.grad_clip_norm),
                                gv[1]) for gv in grads_and_vars]
         
         if FLAGS.visualize:

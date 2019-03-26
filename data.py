@@ -16,9 +16,9 @@ def make_data(value_actions=None):
     with tf.name_scope("data"):
 
         if FLAGS.base_dist == 'BaseDistributionActionAngle':
-            sampler = eval(FLAGS.base_dist)(action_dist=FLAGS.action_dist)
+            sampler = BaseDistributionActionAngle(action_dist=FLAGS.action_dist)
         elif FLAGS.base_dist == 'DiracDistribution':
-            sampler = eval(FLAGS.base_dist)(action_dist=value_actions)
+            sampler = DiracDistribution(action_dist=value_actions)
         else:
             sampler = eval(FLAGS.base_dist)
 
@@ -100,7 +100,12 @@ class BaseDistributionActionAngle():
         elif action_dist == 'normal':
             self.base_dist_u = tfd.MultivariateNormalDiag(loc=tf.zeros(sh, DTYPE))
         elif action_dist == 'dirac':
-            self.base_dist_u = DiracDistribution(sh, settings['value_actions'])
+            # Choose a batch of actions: needs to be divisor of dataset_size or minibatch_size if infinite dataset
+            r = np.random.RandomState(seed=0)
+            num_samples_actions = 2  # number of distinct actions (Liouville torii)
+            sh = (num_samples_actions, FLAGS.d, FLAGS.num_particles, 1)
+            value_actions = r.rand(*sh).astype(NP_DTYPE)
+            self.base_dist_u = DiracDistribution(sh, value_actions)
         # Angles
         if 'high_phi' in FLAGS:
             high_phi = FLAGS.high_phi
