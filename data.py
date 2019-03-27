@@ -9,9 +9,9 @@ DTYPE = tf.float32
 NP_DTYPE = np.float32
 FLAGS = tf.flags.FLAGS
 
-def make_data(value_actions=None):
+def make_data(hparams, value_actions=None):
     """Depending on the type of problem the return value is a tf.Tensor or a
-    Dataset iteraor of size minibatch."""
+    Dataset iterator of size minibatch."""
 
     with tf.name_scope("data"):
 
@@ -24,10 +24,10 @@ def make_data(value_actions=None):
 
         # Create data: z is the minibatch
         if FLAGS.dataset_size == float("inf"):
-            z = sampler.sample(FLAGS.minibatch_size)
-        elif FLAGS.dataset_size == FLAGS.minibatch_size:
+            z = sampler.sample(hparams.minibatch_size)
+        elif FLAGS.dataset_size == hparams.minibatch_size:
             with tf.Session() as sess:
-                z = sess.run(sampler.sample(FLAGS.minibatch_size))
+                z = sess.run(sampler.sample(hparams.minibatch_size))
             z = tf.constant(z)
         else:
             # tf.data.Dataset. Create infinite dataset by repeating and
@@ -43,7 +43,7 @@ def make_data(value_actions=None):
             # Specify maximum number of elements for prefetching.
             # dataset = dataset.prefetch(3 * settings['batch_size'])
             # Specify the minibatch size
-            dataset = dataset.batch(FLAGS.minibatch_size)
+            dataset = dataset.batch(hparams.minibatch_size)
             data_iterator = dataset.make_one_shot_iterator()
             z = data_iterator.get_next()
 
@@ -66,7 +66,7 @@ def make_data(value_actions=None):
 # Distributions
 class DiracDistribution():
     def __init__(self, sh, value_actions):
-        """value_actions is of shape (num_samples_actions, d, n)"""
+        """value_actions is of shape (num_samples_actions, d, num_particles, 1)"""
         self.sh = sh
         # Choose arbitrary values. Set random seed for reproducibility.
 #        r = np.random.RandomState(seed=0);
@@ -75,19 +75,13 @@ class DiracDistribution():
 #        range = reduce(lambda x, y: x * y, sh)
 #        self.values = tf.reshape( tf.range(1,range+1,dtype=DTYPE) / range, sh)
         
-        value_actions = np.array(value_actions).astype(NP_DTYPE)
-        if value_actions.ndim == 1:
-            # actions = [I1,I2,...,Id or In]
-            self.num_samples_actions = 1
-        else:
-            # actions = [[I11,I12,...,I1d], [I21,I22,...,I2d], ... ] 
-            self.num_samples_actions = value_actions.shape[0]
-        self.values = np.reshape(value_actions, (self.num_samples_actions,)+sh)
+        value_actions = np.array(value_actions, dtype=NP_DTYPE)
+        self.values = np.reshape(value_actions, sh)
         print("In DiracDistribution constructor: actions = ", self.values)
 
     def sample(self, N):
-        assert N % self.num_samples_actions == 0, "N must be a multiple of num_samples_actions"
-        return tf.tile(self.values, [N//self.num_samples_actions,1,1,1])
+        assert N % self.sh[0] == 0, "N must be a multiple of num_samples_actions"
+        return tf.tile(self.values, [N//self.sh[0], 1, 1, 1])
 
 
 class BaseDistributionActionAngle():
@@ -103,9 +97,9 @@ class BaseDistributionActionAngle():
             # Choose a batch of actions: needs to be divisor of dataset_size or minibatch_size if infinite dataset
             r = np.random.RandomState(seed=0)
             num_samples_actions = 2  # number of distinct actions (Liouville torii)
-            sh = (num_samples_actions, FLAGS.d, FLAGS.num_particles, 1)
-            value_actions = r.rand(*sh).astype(NP_DTYPE)
-            self.base_dist_u = DiracDistribution(sh, value_actions)
+            u_shape = (num_samples_actions, FLAGS.d, FLAGS.num_particles, 1)
+            value_actions = r.rand(*u_shape).astype(NP_DTYPE)
+            self.base_dist_u = DiracDistribution(u_shape, value_actions)
         # Angles
         if 'high_phi' in FLAGS:
             high_phi = FLAGS.high_phi

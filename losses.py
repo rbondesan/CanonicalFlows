@@ -3,6 +3,8 @@ from utils import extract_q_p, join_q_p, normsq_nobatch, compute_gradK_penalty
 from utils import confining_potential
 from models import MLPHamiltonian
 
+FLAGS = tf.flags.FLAGS
+
 ## TODO: Remove. This was used before the call to make_loss
 # Add ConstantShiftAndScale to enrich the base distribution which samples
 # in the unit cube. Here we learn the scales (shift is canonical and
@@ -21,19 +23,19 @@ from models import MLPHamiltonian
 def dKdphi(K, z):
     # K independent of phi
     dphi, _ = extract_q_p(tf.gradients(K, z)[0])
-    if settings['visualize']:
+    if FLAGS.visualize:
         tf.summary.histogram('dKdphi', dphi)
     # loss = tf.reduce_mean( tf.square(dphi) + \
     #     settings['elastic_net_coeff'] * tf.pow( tf.abs(dphi), 3 ) )
     loss = tf.sqrt(tf.reduce_mean(0.5 * tf.square(dphi)))
-    if 'lambda_range' in settings:
+    if 'lambda_range' in FLAGS:
         # With penalizing K (energy) outside low,high:
-        range_reg = tf.reduce_mean(confining_potential(K, settings['low_K_range'], settings['high_K_range']))
-        loss += settings['lambda_range'] * range_reg
-    if 'lambda_diff' in settings:
+        range_reg = tf.reduce_mean(confining_potential(K, FLAGS.low_K_range, FLAGS.high_K_range))
+        loss += FLAGS.lambda_range * range_reg
+    if 'lambda_diff' in FLAGS:
         # add |K-val|^2 term
-        diff_loss = tf.reduce_mean(tf.square(K - settings['diff_val']))
-        loss += settings['lambda_diff'] * diff_loss
+        diff_loss = tf.reduce_mean(tf.square(K - FLAGS.diff_val))
+        loss += FLAGS.lambda_diff * diff_loss
 
     return loss
 
@@ -56,16 +58,16 @@ def KL(K, z, T):
     # Gradient penalty regularization:
     gp = compute_gradK_penalty(K, z)
     # Range regularization
-    range_reg = tf.reduce_mean(confining_potential(T(z), settings['low_x_range'], settings['high_x_range']))
-    if settings['visualize']:
+    range_reg = tf.reduce_mean(confining_potential(T(z), FLAGS.low_x_range, FLAGS.high_x_range))
+    if FLAGS.visualize:
         tf.summary.scalar("KL_loss", KL_loss)
         # Monitor the derivative of K to understand how well we are doing
         # due to unknown Z in KL. Assume distribution propto e^-u_1.
         tf.summary.scalar("gradient_penalty", gp)
         tf.summary.scalar("range_reg", range_reg)
     loss = KL_loss + \
-           settings['lambda_gp'] * gp + \
-           settings['lambda_range'] * range_reg
+           FLAGS.lambda_gp * gp + \
+           FLAGS.lambda_range * range_reg
 
     return loss
 
@@ -78,7 +80,7 @@ def K_equal_action_H(K, z):
     # TODO: Need temperatures, otherwise, does not make too much sense,
     # think about Kepler problem, where Is are > 0 and H < 0.
     H_I += tf.reduce_sum(I, [1, 2, 3])
-    if settings['visualize']:
+    if FLAGS.visualize:
         tf.summary.histogram('action-Hamiltonian', H_I)
     loss = tf.reduce_mean(tf.square(K - H_I))
 

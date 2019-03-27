@@ -6,6 +6,8 @@ from inspect import getmembers, isfunction, isclass, getmodule
 from tensorflow.contrib.training import HParams
 
 from models import *
+from hamiltonians import *
+from losses import *
 import hamiltonians
 import losses
 import data
@@ -53,7 +55,7 @@ def main(argv):
                       min_learning_rate=1e-6, grad_clip_norm=None)
     hparams.parse(FLAGS.hparams)
 
-    z = make_data()
+    z = make_data(hparams)
 
     # To account for periodicity start with oscillator flow
     stack = [OscillatorFlow()]
