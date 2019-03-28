@@ -20,7 +20,7 @@ def make_data(hparams, value_actions=None):
         elif FLAGS.base_dist == 'DiracDistribution':
             sampler = DiracDistribution(action_dist=value_actions)
         else:
-            sampler = eval(FLAGS.base_dist)
+            sampler = eval(FLAGS.base_dist)()
 
         # Create data: z is the minibatch
         if FLAGS.dataset_size == float("inf"):

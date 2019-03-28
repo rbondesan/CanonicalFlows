@@ -1,4 +1,3 @@
-
 import numpy as np
 import tensorflow as tf
 
@@ -20,6 +19,8 @@ NP_DTYPE=np.float32
 
 tf.set_random_seed(0)
 
+FLAGS = tf.flags.FLAGS
+
 # Hamiltonian flags
 tf.flags.DEFINE_enum('hamiltonian', 'neumann_hamiltonian',
                      [f[0] for f in getmembers(hamiltonians, isfunction) if getmodule(f[1]) is hamiltonians],
@@ -38,14 +39,13 @@ tf.flags.DEFINE_enum("loss", "dKdphi",
                      'Loss function')
 
 # Training flags
-tf.flags.DEFINE_string("logdir", "/tmp/log/im_tests/neumann-3/with-grad-clip", "Directory to write logs.")
+tf.flags.DEFINE_string("logdir",
+                       f"/tmp/logging/canonical_flows/{FLAGS.hamiltonian}_{FLAGS.loss}_{FLAGS.base_dist}",
+                       "Directory to write logs.")
 tf.flags.DEFINE_integer('dataset_size', 2**13, 'Set to float("inf") to keep sampling.')
 tf.flags.DEFINE_integer('ckpt_freq', 1000, 'Checkpoint frequency')
 tf.flags.DEFINE_boolean('visualize', True, 'Produce visualization.')
 tf.flags.DEFINE_string("hparams", "", 'Comma separated list of "name=value" pairs e.g. "--hparams=learning_rate=0.3"')
-
-
-FLAGS = tf.flags.FLAGS
 
 
 def main(argv):
