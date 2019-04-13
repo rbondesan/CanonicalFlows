@@ -459,6 +459,8 @@ def diag_unitary(q, p, phi):
     return tf.cos(phi)*q - tf.sin(phi)*p, \
         tf.sin(phi)*q + tf.cos(phi)*p
     
+#def raise_(ex):
+#    raise ex
 def householder(q, p, a, b):
     """Apply the Householder reflection to the plane perp to 
     v = a + i b in C^n: Z = id - 2/||v||^2 v v^\dagger. 
@@ -467,15 +469,16 @@ def householder(q, p, a, b):
     q,p are in R^N \otimes R \otimes R \otimes R^(n).
     Returns Z circ [q;p]"""
     n = tf.shape(a)[0]
-    tf.assert_equal(n, tf.shape(b))
+#    tf.assert_equal(n, tf.shape(b))
 
     batch = tf.shape(q)[0]
     sh = [batch,1,1,n]    
     
     # Coeff = 2/||v||^2
     coeff = 2./(tf.norm(a)**2 + tf.norm(b)**2)
-    if tf.is_nan(coeff):
-        raise ValueError('Zero norm vector')
+    #tf.cond(tf.is_nan(coeff), 
+    #        true_fn=lambda: raise_(ValueError('Zero norm vector')), 
+    #        false_fn=lambda: None)
         
     # Compute scalar products. They have shape (N,1,1)
     axes = [[0], [3]]
