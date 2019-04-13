@@ -304,15 +304,16 @@ class LinearSymplecticTwoByTwo(SymplecticFlow):
         res = tf.einsum('abc,dac->dab', self.inverse_S, x)
         return tf.reshape(res, shape=x_shape)
 
-# TODO: It cannot represent the identity since L neq 0 so it leads to nans
-# when trying to learn identity.
-class LinearSymplectic(SymplecticFlow):
+class FreeLinearSymplectic(SymplecticFlow):
     def __init__(self, squeezing_factors=[1, 1]):
         """q,p -> conv2d( squeeze(q,p) , filters = 1x1, weights=S ) ->
         unsqueeze S symplectic. The squeezing factors chooses the
         dimensionality of the reduced phase space on which S acts (=2*f1*f2)
+        
+        NOTE: It cannot represent the identity since L neq 0 so it leads to nans
+        when trying to learn identity. Use LinearSymplectic instead
         """
-        super(LinearSymplectic, self).__init__()
+        super(FreeLinearSymplectic, self).__init__()
         self.f1 = squeezing_factors[0]
         self.f2 = squeezing_factors[1]
         tot_squeezing_factor = self.f1 * self.f2
@@ -368,6 +369,125 @@ class LinearSymplectic(SymplecticFlow):
                               2
                               ])
 
+class LinearSymplectic(SymplecticFlow):
+    def __init__(self, num_householder=2):
+        """
+        Uses pre-Iwasawa decomposition of Sp(n):
+        |1 0|L^{-1} 0  | U
+        |P 1|0      L^T|
+        
+        with U unitary, here represented by a series
+        of Householder reflections and a U(1)^n.
+        P = P^T.
+        """
+        super(LinearSymplectic, self).__init__()
+        self.num_householder = num_householder
+        
+    def build(self, in_size):
+        # Take dimension to be the full phase space dim 2n
+        self.n = (in_size[1]*in_size[2]).value
+                
+        # P,L diagonal, so that O(n) complexity
+        sh = [self.n]
+        L_init = tf.ones(sh)
+        P_init = tf.zeros(sh)                
+        self.L = tfe.Variable(L_init, name="L")
+        self.P = tfe.Variable(P_init, name="P")
+        
+        init = tf.glorot_normal_initializer()
+        
+        # householder reflection vectors
+        sh = [self.num_householder, self.n]
+        self.a = tfe.Variable(init(sh), name="a")
+        self.b = tfe.Variable(init(sh), name="b")
+            
+        # Diagonal unitary requires angles
+        sh = [self.n]
+        self.phi = tfe.Variable(tf.random_normal(sh), name="phi")
+        
+    def call(self, x):
+        q, p, sh = self._extract_and_reshape_q_p(x)
+        
+        # diag unitary
+        q, p = diag_unitary(q, p, self.phi)
+        
+        # Chain of householder refl
+        for i in range(self.num_householder):
+            q, p = householder(q, p, self.a[i,:], self.b[i,:])
+        
+        # V_P \circ M_L
+        q = self.L * q
+        p = self.P * q + 1./self.L * p
+        
+        return self._reshape_and_join_q_p(q, p, sh)
+
+    def inverse(self, x):   
+        if self.built == False:
+            self.build(tf.shape(x))
+            self.built = True
+        q, p, sh = self._extract_and_reshape_q_p(x)
+        
+        # (V_P \circ M_L)^{-1}
+        p = -self.P * self.L * q + self.L * p
+        q = 1./self.L * q
+        
+        # Chain of householder refl
+        for i in reversed(range(self.num_householder)):
+            q, p = householder(q, p, self.a[i,:], self.b[i,:])
+        
+        # diag unitary
+        q, p = diag_unitary(q, p, -self.phi)
+        
+        return self._reshape_and_join_q_p(q, p, sh)
+    
+    def _extract_and_reshape_q_p(self, x):
+        q, p = extract_q_p(x)
+        sh = tf.shape(q)        
+        q = tf.reshape(q, [sh[0], 1, 1, sh[1]*sh[2]])
+        p = tf.reshape(p, [sh[0], 1, 1, sh[1]*sh[2]])
+        return q, p, sh
+    
+    def _reshape_and_join_q_p(self, q, p, sh):
+        q = tf.reshape(q, sh)
+        p = tf.reshape(p, sh)
+        return join_q_p(q, p)    
+    
+def diag_unitary(q, p, phi):
+    """
+    q, p are supposed to be [b,1,1,n], phi [n]
+    """
+    return tf.cos(phi)*q - tf.sin(phi)*p, \
+        tf.sin(phi)*q + tf.cos(phi)*p
+    
+def householder(q, p, a, b):
+    """Apply the Householder reflection to the plane perp to 
+    v = a + i b in C^n: Z = id - 2/||v||^2 v v^\dagger. 
+    Complexity O(n), rather than naive matrix multiply which is O(n^3).
+    
+    q,p are in R^N \otimes R \otimes R \otimes R^(n).
+    Returns Z circ [q;p]"""
+    n = tf.shape(a)[0]
+    tf.assert_equal(n, tf.shape(b))
+
+    batch = tf.shape(q)[0]
+    sh = [batch,1,1,n]    
+    
+    # Coeff = 2/||v||^2
+    coeff = 2./(tf.norm(a)**2 + tf.norm(b)**2)
+    if tf.is_nan(coeff):
+        raise ValueError('Zero norm vector')
+        
+    # Compute scalar products. They have shape (N,1,1)
+    axes = [[0], [3]]
+    aq = tf.tensordot(a, q, axes)
+    bq = tf.tensordot(b, q, axes)
+    ap = tf.tensordot(a, p, axes)
+    bp = tf.tensordot(b, p, axes)
+
+    new_q = q - coeff*tf.reshape(aq * a + bq * b - ap * b + bp * a,sh)
+    new_p = p - coeff*tf.reshape(ap * a + bp * b + aq * b - bq * a,sh)
+    return new_q, new_p
+    
 # Hamiltonian vector field
 def hamiltonian_vector_field(hamiltonian, x, t, backward_time=False):
     """X_H appearing in Hamilton's eqs: xdot = X_H(x)"""
