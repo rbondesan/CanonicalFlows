@@ -385,7 +385,7 @@ class LinearSymplectic(SymplecticFlow):
         
     def build(self, in_size):
         # Take dimension to be the full phase space dim 2n
-        self.n = (in_size[1]*in_size[2]).value
+        self.n = int(in_size[1]*in_size[2])
                 
         # P,L diagonal, so that O(n) complexity
         sh = [self.n]
@@ -423,7 +423,7 @@ class LinearSymplectic(SymplecticFlow):
 
     def inverse(self, x):   
         if self.built == False:
-            self.build(tf.shape(x))
+            self.build(x.get_shape())
             self.built = True
         q, p, sh = self._extract_and_reshape_q_p(x)
         
