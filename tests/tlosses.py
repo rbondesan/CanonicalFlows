@@ -42,7 +42,7 @@ def test_make_circle_loss():
     z = tf.sqrt( tf.reshape(tf.range(0,tot,dtype=DTYPE),(N,b,d,n,2)) )
     #      = 2*(0       +1        - (4       +5       ))^2
     #      + 2*(2       +3        - (6       +7       ))^2    
-    expected_loss = tf.constant(2. * ((1-(4+5))**2 + (5-(6+7))**2), dtype=DTYPE)
+    expected_loss = tf.constant(2. * ((1-(4+5))**2 + (5-(6+7))**2), dtype=DTYPE) / 4.
     loss = make_circle_loss(z)
     assert_allclose(loss, expected_loss)
     print("test_make_circle_loss passed")

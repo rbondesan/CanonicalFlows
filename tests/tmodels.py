@@ -340,7 +340,7 @@ def testZeroCenter():
     moving_mean = mean_per_channel * (1-decay)
     model = ZeroCenter()
     y = model(x)
-    assert_equal(y, x-mean_per_channel)
+    assert_equal(y, x+mean_per_channel)
 
     # 2nd update
     x = 0.5 * tf.reshape(tf.range(0,16,dtype=DTYPE), shape=(2,2,2,2))
@@ -348,12 +348,12 @@ def testZeroCenter():
     moving_mean = decay * moving_mean + (1-decay) * mean_per_channel
 #    moving_mean /= (1-decay**2)
     y = model(x)
-    assert_equal(y, x-mean_per_channel)
+    assert_equal(y, x+mean_per_channel)
 
     # Test prediction mode - still offset is zero.
     model.is_training = False
     y = model(x)
-    assert_equal(y, x-moving_mean)
+    assert_equal(y, x+moving_mean)
     assert_equal(x, model.inverse(y))
 
     assert( is_symplectic(model,

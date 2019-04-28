@@ -370,7 +370,7 @@ class FreeLinearSymplectic(SymplecticFlow):
                               ])
 
 class LinearSymplectic(SymplecticFlow):
-    def __init__(self, num_householder=2):
+    def __init__(self, num_householder=2, householder_random_init=True):
         """
         Uses pre-Iwasawa decomposition of Sp(n):
         |1 0|L^{-1} 0  | U
@@ -382,7 +382,13 @@ class LinearSymplectic(SymplecticFlow):
         """
         super(LinearSymplectic, self).__init__()
         self.num_householder = num_householder
-        
+        if householder_random_init:
+            self.init = tf.glorot_normal_initializer()
+        else:
+            # Take a constant (ones) initializer, so that the 
+            # even chain of reflections represents the identity.
+            self.init = tf.ones
+            
     def build(self, in_size):
         # Take dimension to be the full phase space dim 2n
         self.n = int(in_size[1]*in_size[2])
@@ -393,13 +399,11 @@ class LinearSymplectic(SymplecticFlow):
         P_init = tf.zeros(sh)                
         self.L = tfe.Variable(L_init, name="L")
         self.P = tfe.Variable(P_init, name="P")
-        
-        init = tf.glorot_normal_initializer()
-        
+                
         # householder reflection vectors
         sh = [self.num_householder, self.n]
-        self.a = tfe.Variable(init(sh), name="a")
-        self.b = tfe.Variable(init(sh), name="b")
+        self.a = tfe.Variable(self.init(sh), name="a")
+        self.b = tfe.Variable(self.init(sh), name="b")
             
         # Diagonal unitary requires angles
         sh = [self.n]
@@ -572,7 +576,7 @@ class NonLinearSqueezing(SymplecticFlow):
 #         return z + self._shift
 
 class ZeroCenter(SymplecticFlow):
-    def __init__(self, decay=0.99, debias=False, is_training_forward=True):
+    def __init__(self, decay=0.99, debias=False):
         """Shifts activations to have zero center. Add learnable offset.
         call (forward) used during training, normalizes:
         y = x - mean(x) + offset
@@ -605,7 +609,6 @@ class ZeroCenter(SymplecticFlow):
         #                                      dtype = tf.int64,
         #                                      trainable=False)
         self.is_training = True
-        self.is_training_forward = is_training_forward
 
     def build(self, in_sz):
         num_channels = in_sz[-1]
@@ -614,40 +617,29 @@ class ZeroCenter(SymplecticFlow):
                                          trainable=False)
 
     def call(self, x):
-        if self.is_training and self.is_training_forward:
+        if self.is_training:
             train_mean, minibatch_mean_per_channel = self.update_moving_mean(x)
             # This runs the with block after the ops it depends on, so that
             # moving_mean is updated every iteration.
             with tf.control_dependencies([train_mean]):
-                return x - minibatch_mean_per_channel + self._offset
-        elif not self.is_training and not self.is_training_forward:
-            # Used in prediction when training with inverse
-            return x + self._moving_mean - self._offset
-        elif not self.is_training and self.is_training_forward:
-            # Prediction - standard batchnorm
-            return x - self._moving_mean + self._offset
+                return x + minibatch_mean_per_channel - self._offset
         else:
-            raise ValueError('Should not be used')
+            # Prediction - standard batchnorm
+            return x + self._moving_mean - self._offset
 
     def inverse(self, z):
         if self.built == False:
             self.build(tf.shape(z))
             self.built = True
         
-        if self.is_training and not self.is_training_forward:
+        if self.is_training:
             train_mean, minibatch_mean_per_channel = self.update_moving_mean(z)
             # This runs the with block after the ops it depends on, so that
             # moving_mean is updated every iteration.
             with tf.control_dependencies([train_mean]):
                 return z - minibatch_mean_per_channel + self._offset
-        elif not self.is_training and self.is_training_forward:
-            # Used in prediction when training with forward
-            return z + self._moving_mean - self._offset
-        elif not self.is_training and not self.is_training_forward:
-            # Prediction - standard batchnorm
-            return z - self._moving_mean + self._offset
         else:
-            raise ValueError('Should not be used')
+            return z - self._moving_mean + self._offset
 
     def update_moving_mean(self, x):
         minibatch_mean_per_channel = tf.reduce_mean(x, [0,1,2])

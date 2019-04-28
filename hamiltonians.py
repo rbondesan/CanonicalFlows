@@ -34,6 +34,8 @@ def kepler(x, k=1.0):
     """H = 1/2 sum_{i=1}^d p_i^2 + k/r, r = sqrt(sum_{i=1}^d q_i^2).
     Assume x.shape = (N,d,1,2) with d=2,3.
     V(r)=k/r, k>0 repulsive, k<0 attractive."""
+    assert(x.shape[2] == 1)
+
     q,p = extract_q_p(x)
     # The derivative of r wrt q is 1/sqrt(sum(q^2)), which is singular in 0.
     # Cutoff r so that it is > eps.
