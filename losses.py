@@ -24,8 +24,8 @@ def make_circle_loss(z, shift=-1):
     diff_qhatsq = qhatsq - tf.roll(qhatsq, shift=shift, axis=0)
     diff_phatsq = phatsq - tf.roll(phatsq, shift=shift, axis=0)
     # TODO: sqrt?
-    return tf.reduce_mean(tf.square(diff_qhatsq + diff_phatsq))
-#    return tf.reduce_sum(tf.square(diff_qhatsq + diff_phatsq))
+    # return tf.reduce_mean(tf.square(diff_qhatsq + diff_phatsq))
+    return tf.reduce_sum(tf.square(diff_qhatsq + diff_phatsq))
 
 def make_loss(settings, T, inp):
     name = settings['loss']

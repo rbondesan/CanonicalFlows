@@ -49,7 +49,7 @@ tf.flags.DEFINE_string("hparams", "", 'Comma separated list of "name=value" pair
 
 def main(argv):
 
-    hparams = HParams(minibatch_size=2**7, starter_learning_rate=0.00001, decay_lr="piecewise",
+    hparams = HParams(minibatch_size=2**9, starter_learning_rate=0.00001, decay_lr="piecewise",
                       boundaries=[20000, 200000], boundary_values=[1e-5, 1e-6, 1e-6],
                       min_learning_rate=1e-6, grad_clip_norm=None)
     hparams.parse(FLAGS.hparams)
@@ -61,7 +61,7 @@ def main(argv):
     stack = []
     for i in range(FLAGS.num_stacks_bijectors):
         stack.extend([ZeroCenter(),
-                      LinearSymplecticTwoByTwo(),
+                      LinearSymplectic(),
                       SymplecticAdditiveCoupling(shift_model=IrrotationalMLP())])
     T = Chain(stack)
 
@@ -78,9 +78,9 @@ def main(argv):
         qp_op = tf.expand_dims(qp_op, axis=0)  # Requires a batch dimension
         tf.summary.image("q-p", qp_op)
 
-        qp_op = qp_plot(z)
-        qp_op = tf.expand_dims(qp_op, axis=0)  # Requires a batch dimension
-        tf.summary.image("qhat-phat", qp_op)
+        qhat_phat_op = qp_plot(z)
+        qhat_phat_op = tf.expand_dims(qhat_phat_op, axis=0)  # Requires a batch dimension
+        tf.summary.image("qhat-phat", qhat_phat_op)
 
     loss = make_circle_loss(z, shift=-hparams.minibatch_size // 2)
     tf.summary.scalar('loss', loss)
@@ -93,7 +93,6 @@ def main(argv):
 
 @tfplot.autowrap
 def qp_plot(traj):
-
     q, p = extract_q_p(traj)
     fig, ax = tfplot.subplots(FLAGS.num_particles, FLAGS.d, figsize=(12, 4))
     for n in range(FLAGS.d):

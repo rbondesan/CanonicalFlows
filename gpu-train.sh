@@ -2,7 +2,7 @@
 #SBATCH -A LAMACRAFT-SL3-GPU
 #SBATCH -p pascal
 #SBATCH -t 01:00:00
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --ntasks-per-node=1
