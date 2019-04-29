@@ -382,6 +382,29 @@ def hamiltonian_traj(H, init_state, settings, time=100, steps=200, rtol=1e-04, a
     tensor_state = tf.contrib.integrate.odeint(hamiltons_equations(H,settings), init_state, t, rtol, atol)
     return tensor_state
 
+# Traj2Circle utils
+def plot_traj(settings, qtraj, ptraj, qhat_traj=None, phat_traj=None, equal_aspect=True):    
+    cols=['r','g','b']        
+    num_init_cond = qtraj.shape[1]
+    fig = plt.figure(figsize=(4*settings['d'],4*num_init_cond))    
+    for b in range(num_init_cond):
+        for n in range(settings['d']):
+            plt.subplot(num_init_cond, settings['d'], n + b*settings['d'] + 1) #nrows,ncols,index
+            plt.plot(qtraj[:,b,n,0,0], ptraj[:,b,n,0,0], '+')
+            if qhat_traj is not None and phat_traj is not None:
+                plt.plot(qhat_traj[:,b,n,0,0], phat_traj[:,b,n,0,0], '*')
+            if equal_aspect:
+                plt.gca().set_aspect('equal', adjustable='box')
+
+def pull_back_traj(settings, T, x):
+    """Returns tranformed trajectory x whose shape is (T,B,d,n,2)."""
+    batch = x.shape[1]    
+    z = tf.reshape(x, [settings['minibatch_size']*batch,settings['d'],settings['num_particles'],2]) 
+    z = T.inverse(z)
+    z = tf.reshape(z, [settings['minibatch_size'],batch,settings['d'],settings['num_particles'],2])
+    return z
+
+
 # TODO: Remove?
 # # Define the solver step
 # def rk4_step(f, t, x, eps):
