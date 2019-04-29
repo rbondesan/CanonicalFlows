@@ -1,0 +1,6 @@
+{
+  "test_hamiltonians.py::test_henon_heiles_hamiltonian": true,
+  "test_hamiltonians.py::test_oscillator_hamiltonian": true,
+  "test_models.py::testLatticeSymmetry": true,
+  "test_models.py::testMLPWithoutGradientGivesSymplectic": true
+}
