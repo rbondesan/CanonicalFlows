@@ -385,24 +385,39 @@ def hamiltonian_traj(H, init_state, settings, time=100, steps=200, rtol=1e-04, a
 def plot_traj(settings, qtraj, ptraj, qhat_traj=None, phat_traj=None, equal_aspect=True):    
     cols=['r','g','b']        
     num_init_cond = qtraj.shape[1]
-    fig = plt.figure(figsize=(4*settings['d'],4*num_init_cond))    
+    nn = settings['d'] if settings['num_particles'] == 1 else settings['num_particles']
+    fig = plt.figure(figsize=(4*nn,4*num_init_cond))    
     for b in range(num_init_cond):
-        for n in range(settings['d']):
-            plt.subplot(num_init_cond, settings['d'], n + b*settings['d'] + 1) #nrows,ncols,index
-            plt.plot(qtraj[:,b,n,0,0], ptraj[:,b,n,0,0], '+')
+        for n in range(nn):
+            plt.subplot(num_init_cond, nn, n + b*nn + 1) #nrows,ncols,index
+            if settings['num_particles'] == 1:            
+                plt.plot(qtraj[:,b,n,0,0], ptraj[:,b,n,0,0], '+')
+            else:
+                plt.plot(qtraj[:,b,0,n,0], ptraj[:,b,0,n,0], '+')
             if qhat_traj is not None and phat_traj is not None:
-                plt.plot(qhat_traj[:,b,n,0,0], phat_traj[:,b,n,0,0], '*')
+                if settings['num_particles'] == 1:
+                    plt.plot(qhat_traj[:,b,n,0,0], phat_traj[:,b,n,0,0], '*')
+                else:
+                    plt.plot(qhat_traj[:,b,0,n,0], phat_traj[:,b,0,n,0], '*')
             if equal_aspect:
                 plt.gca().set_aspect('equal', adjustable='box')
 
+def is_dim_none(d):
+    # hack: compared to a value, returns None:
+    # TODO: improve.
+    val = 1
+    if (d == val) == None:
+        return True
+    else:
+        return False
 def pull_back_traj(settings, T, x):
     """Returns tranformed trajectory x whose shape is (T,B,d,n,2)."""
-    batch = x.shape[1]    
-    z = tf.reshape(x, [settings['minibatch_size']*batch,settings['d'],settings['num_particles'],2]) 
+    batch = x.shape[1]   
+    time_steps = x.shape[0] if not is_dim_none(x.shape[0]) else settings['minibatch_size']
+    z = tf.reshape(x, [time_steps*batch,settings['d'],settings['num_particles'],2]) 
     z = T.inverse(z)
-    z = tf.reshape(z, [settings['minibatch_size'],batch,settings['d'],settings['num_particles'],2])
+    z = tf.reshape(z, [time_steps,batch,settings['d'],settings['num_particles'],2])
     return z
-
 
 # TODO: Remove?
 # # Define the solver step
