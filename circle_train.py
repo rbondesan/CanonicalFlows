@@ -39,7 +39,7 @@ tf.flags.DEFINE_integer("num_stacks_bijectors", 4, "Number of stacks of bijector
 
 # Training flags
 tf.flags.DEFINE_string("logdir",
-                       f"/tmp/logging/canonical_flows/{FLAGS.hamiltonian}",
+                       f"../logging/canonical_flows/{FLAGS.hamiltonian}",
                        "Directory to write logs.")
 tf.flags.DEFINE_integer('dataset_size', 2**13, 'Set to float("inf") to keep sampling.')
 tf.flags.DEFINE_integer('ckpt_freq', 1000, 'Checkpoint frequency')
