@@ -74,13 +74,9 @@ def main(argv):
 
     if FLAGS.visualize:
         # Add image summary
-        qp_op = qp_plot(traj)
+        qp_op = qp_plot((traj, z))
         qp_op = tf.expand_dims(qp_op, axis=0)  # Requires a batch dimension
         tf.summary.image("q-p", qp_op)
-
-        qhat_phat_op = qp_plot(z)
-        qhat_phat_op = tf.expand_dims(qhat_phat_op, axis=0)  # Requires a batch dimension
-        tf.summary.image("qhat-phat", qhat_phat_op)
 
     loss = make_circle_loss(z, shift=-hparams.minibatch_size // 2)
     tf.summary.scalar('loss', loss)
@@ -92,11 +88,12 @@ def main(argv):
 
 
 @tfplot.autowrap
-def qp_plot(traj):
-    q, p = extract_q_p(traj)
+def qp_plot(trajs):
     fig, ax = tfplot.subplots(FLAGS.num_particles, FLAGS.d, figsize=(12, 4))
     for n in range(FLAGS.d):
-        ax[n].scatter(q[:, n, 0, 0], p[:, n, 0, 0], color='green')
+        for traj in trajs:
+            q, p = extract_q_p(traj)
+            ax[n].scatter(q[:, n, 0, 0], p[:, n, 0, 0])
 
     return fig
 
