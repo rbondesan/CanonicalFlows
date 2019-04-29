@@ -1,5 +1,7 @@
+import io
 import numpy as np
 import tensorflow as tf
+import tfplot
 
 from inspect import getmembers, isfunction, isclass, getmodule
 from tensorflow.contrib.training import HParams
@@ -11,7 +13,7 @@ import hamiltonians
 import losses
 import data
 from utils import make_train_op
-from data import make_data
+from data import make_trajectory
 
 
 DTYPE=tf.float32
@@ -29,15 +31,15 @@ tf.flags.DEFINE_integer("num_particles", 1, "Number of particles.")
 tf.flags.DEFINE_integer("d", 3, "Space dimension.")
 
 # Model flags
-tf.flags.DEFINE_enum('base_dist', 'BaseDistributionActionAngle',
-                     [f[0] for f in getmembers(data, isclass) if getmodule(f[1]) is data],
-                     'Base distribution.')
-tf.flags.DEFINE_enum('action_dist', 'dirac', ['dirac', 'exponential', 'normal'], 'Distribution of actions.')
+# tf.flags.DEFINE_enum('base_dist', 'BaseDistributionActionAngle',
+#                      [f[0] for f in getmembers(data, isclass) if getmodule(f[1]) is data],
+#                      'Base distribution.')
+# tf.flags.DEFINE_enum('action_dist', 'dirac', ['dirac', 'exponential', 'normal'], 'Distribution of actions.')
 tf.flags.DEFINE_integer("num_stacks_bijectors", 4, "Number of stacks of bijectors.")
 
 # Training flags
 tf.flags.DEFINE_string("logdir",
-                       f"/tmp/logging/canonical_flows/{FLAGS.hamiltonian}_{FLAGS.loss}_{FLAGS.base_dist}",
+                       f"/tmp/logging/canonical_flows/{FLAGS.hamiltonian}",
                        "Directory to write logs.")
 tf.flags.DEFINE_integer('dataset_size', 2**13, 'Set to float("inf") to keep sampling.')
 tf.flags.DEFINE_integer('ckpt_freq', 1000, 'Checkpoint frequency')
@@ -52,39 +54,53 @@ def main(argv):
                       min_learning_rate=1e-6, grad_clip_norm=None)
     hparams.parse(FLAGS.hparams)
 
-    z = make_data(hparams)
+    hamiltonian_fn = eval(FLAGS.hamiltonian)
+    traj = make_trajectory(hparams, hamiltonian_fn)
+    traj = tf.random_shuffle(traj)
 
-    # To account for periodicity start with oscillator flow
-    stack = [OscillatorFlow()]
+    stack = []
     for i in range(FLAGS.num_stacks_bijectors):
         stack.extend([ZeroCenter(),
                       LinearSymplecticTwoByTwo(),
                       SymplecticAdditiveCoupling(shift_model=IrrotationalMLP())])
-        # SymplecticAdditiveCoupling(shift_model=MLP())])
     T = Chain(stack)
 
     with tf.name_scope("canonical_transformation"):
-        x = T(z)
-        if FLAGS.visualize:
-            q,p = extract_q_p(x)
-            tf.summary.histogram("q", q)
-            tf.summary.histogram("p", p)
-        K = eval(FLAGS.hamiltonian)(x)
-        if FLAGS.visualize:
-            tf.summary.histogram('K-Hamiltonian', K)
+        # traj is (num_time_samples,batch,d,n,2)
+        num_time_samples = traj.shape[0]
+        batch = traj.shape[1]
+        traj = tf.reshape(traj, [num_time_samples * batch, FLAGS.d, FLAGS.num_particles, 2])
+        z = T.inverse(traj)
 
-    loss = eval(FLAGS.loss)(K, z)
+    if FLAGS.visualize:
+        # Add image summary
+        qp_op = qp_plot(traj)
+        qp_op = tf.expand_dims(qp_op, axis=0)  # Requires a batch dimension
+        tf.summary.image("q-p", qp_op)
+
+        qp_op = qp_plot(z)
+        qp_op = tf.expand_dims(qp_op, axis=0)  # Requires a batch dimension
+        tf.summary.image("qhat-phat", qp_op)
+
+    loss = make_circle_loss(z, shift=-hparams.minibatch_size // 2)
     tf.summary.scalar('loss', loss)
 
     step = tf.get_variable("global_step", [], tf.int64, tf.zeros_initializer(), trainable=False)
     train_op = make_train_op(hparams, loss, step)
 
-    # Set the ZeroCenter bijectors to training mode:
-    for i, bijector in enumerate(T.bijectors):
-        if hasattr(bijector, 'is_training'):
-            T.bijectors[i].is_training = True
-
     tf.contrib.training.train(train_op, logdir=FLAGS.logdir, save_checkpoint_secs=60)
+
+
+@tfplot.autowrap
+def qp_plot(traj):
+
+    q, p = extract_q_p(traj)
+    fig, ax = tfplot.subplots(FLAGS.num_particles, FLAGS.d, figsize=(12, 4))
+    for n in range(FLAGS.d):
+        ax[n].scatter(q[:, n, 0, 0], p[:, n, 0, 0], color='green')
+
+    return fig
+
 
 
 if __name__ == '__main__':

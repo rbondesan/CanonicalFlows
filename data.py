@@ -12,17 +12,19 @@ NP_DTYPE = np.float32
 FLAGS = tf.flags.FLAGS
 
 
-def make_trajectories(hparams):
+def make_trajectory(hparams, hamiltonian):
     # Use HamiltonianFlow as integrator of Hamiltonian
-    integrator = HamiltonianFlow(FLAGS.hamiltonian,
+    integrator = HamiltonianFlow(hamiltonian,
                                  initial_t=0.,
                                  final_t=10.,
-                                 hparams.minibatch_size)
-    # Choose initial conditions at random
-    x0 = np.random.randn(1, settings['d'], settings['num_particles'], 2).astype(NP_DTYPE)
+                                 num_steps=hparams.minibatch_size)
+    # Choose initial conditions at random... with gaussian the integration fails sometimes
+    # x0 = np.random.randn(1, FLAGS.d, FLAGS.num_particles, 2).astype(NP_DTYPE)
+    x0 = tf.random.uniform([1, FLAGS.d, FLAGS.num_particles, 2], minval=-1., maxval=1.)
     traj = integrator(x0, return_full_state=True)
-    # traj has shape (num_time_samples,batch,d,n,2). Reinterpret batch and num_time_samples as batch
-    qtraj, ptraj = extract_q_p(np.reshape(traj, [-1, FLAGS.d, FLAGS.num_particles, 2]))
+    # traj has shape (num_time_samples,batch,d,n,2)
+    return traj
+
 
 def make_data(hparams, value_actions=None):
     """Depending on the type of problem the return value is a tf.Tensor or a
