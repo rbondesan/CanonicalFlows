@@ -6,7 +6,7 @@ from tensorflow.contrib.training import HParams
 
 from models import *
 from hamiltonians import *
-from losses import *
+from losses import make_circle_loss
 import hamiltonians
 import losses
 import data
@@ -34,9 +34,6 @@ tf.flags.DEFINE_enum('base_dist', 'BaseDistributionActionAngle',
                      'Base distribution.')
 tf.flags.DEFINE_enum('action_dist', 'dirac', ['dirac', 'exponential', 'normal'], 'Distribution of actions.')
 tf.flags.DEFINE_integer("num_stacks_bijectors", 4, "Number of stacks of bijectors.")
-tf.flags.DEFINE_enum("loss", "dKdphi",
-                     [f[0] for f in getmembers(losses, isfunction) if getmodule(f[1]) is losses],
-                     'Loss function')
 
 # Training flags
 tf.flags.DEFINE_string("logdir",

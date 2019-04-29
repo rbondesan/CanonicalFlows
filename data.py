@@ -1,13 +1,28 @@
 import tensorflow as tf
-from functools import reduce
 import tensorflow_probability as tfp
 tfd = tfp.distributions
 import numpy as np
 from utils import join_q_p
+from models import HamiltonianFlow
+
+FLAGS = tf.flags.FLAGS
 
 DTYPE = tf.float32
 NP_DTYPE = np.float32
 FLAGS = tf.flags.FLAGS
+
+
+def make_trajectories(hparams):
+    # Use HamiltonianFlow as integrator of Hamiltonian
+    integrator = HamiltonianFlow(FLAGS.hamiltonian,
+                                 initial_t=0.,
+                                 final_t=10.,
+                                 hparams.minibatch_size)
+    # Choose initial conditions at random
+    x0 = np.random.randn(1, settings['d'], settings['num_particles'], 2).astype(NP_DTYPE)
+    traj = integrator(x0, return_full_state=True)
+    # traj has shape (num_time_samples,batch,d,n,2). Reinterpret batch and num_time_samples as batch
+    qtraj, ptraj = extract_q_p(np.reshape(traj, [-1, FLAGS.d, FLAGS.num_particles, 2]))
 
 def make_data(hparams, value_actions=None):
     """Depending on the type of problem the return value is a tf.Tensor or a
