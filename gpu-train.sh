@@ -13,4 +13,4 @@ module load cuda/10.0 cudnn/7.4_cuda-10.0
 module load miniconda3-4.5.4-gcc-5.4.0-hivczbz
 
 source activate tensorflow
-python ./circle_train.py --hamiltonian="kepler" --d=3 --num_particles=1 --multiple_trajectories=True --hparams=minibatch_size=1024
+python ./circle_train.py --hamiltonian="kepler" --d=3 --num_particles=1 --multiple_trajectories=True

@@ -17,12 +17,12 @@ def make_trajectory(hparams, hamiltonian):
     integrator = HamiltonianFlow(hamiltonian,
                                  initial_t=0.,
                                  final_t=10.,
-                                 num_steps=hparams.minibatch_size)
+                                 num_steps=FLAGS.trajectory_duration)
     # Choose initial conditions at random... with gaussian the integration fails sometimes
     if FLAGS.multiple_trajectories:
-        x0 = tf.random.uniform([1, FLAGS.d, FLAGS.num_particles, 2], minval=-1., maxval=1.)
+        x0 = tf.random.uniform([hparams.minibatch_size, FLAGS.d, FLAGS.num_particles, 2], minval=-1., maxval=1.)
     else:
-        x0 = 2 * np.random.rand(1, FLAGS.d, FLAGS.num_particles, 2).astype(NP_DTYPE) - 1
+        x0 = 2 * np.random.rand(hparams.minibatch_size, FLAGS.d, FLAGS.num_particles, 2).astype(NP_DTYPE) - 1
     traj = integrator(x0, return_full_state=True)
     # traj has shape (num_time_samples,batch,d,n,2)
     return traj

@@ -35,6 +35,7 @@ tf.flags.DEFINE_integer("d", 3, "Space dimension.")
 #                      [f[0] for f in getmembers(data, isclass) if getmodule(f[1]) is data],
 #                      'Base distribution.')
 # tf.flags.DEFINE_enum('action_dist', 'dirac', ['dirac', 'exponential', 'normal'], 'Distribution of actions.')
+tf.flags.DEFINE_integer('trajectory_duration', 2**10, 'Duration of trajectory.')
 tf.flags.DEFINE_boolean('multiple_trajectories', True, 'Train over many different trajectories.')
 tf.flags.DEFINE_integer("num_stacks_bijectors", 4, "Number of stacks of bijectors.")
 
@@ -47,13 +48,14 @@ tf.flags.DEFINE_string("logdir", f"../logging/canonical_flows/{FLAGS.hamiltonian
 
 def main(argv):
 
-    hparams = HParams(minibatch_size=2**9, starter_learning_rate=0.00001, decay_lr="piecewise",
+    hparams = HParams(minibatch_size=8, starter_learning_rate=0.00001, decay_lr="piecewise",
                       boundaries=[20000, 200000], boundary_values=[1e-5, 1e-6, 1e-6],
                       min_learning_rate=1e-6, grad_clip_norm=None)
     hparams.parse(FLAGS.hparams)
 
     hamiltonian_fn = eval(FLAGS.hamiltonian)
     traj = make_trajectory(hparams, hamiltonian_fn)
+    # Shuffle along the time index
     traj = tf.random_shuffle(traj)
 
     stack = []
@@ -67,13 +69,15 @@ def main(argv):
         # traj is (num_time_samples,batch,d,n,2)
         num_time_samples = traj.shape[0]
         batch = traj.shape[1]
-        traj = tf.reshape(traj, [num_time_samples * batch, FLAGS.d, FLAGS.num_particles, 2])
-        z = T.inverse(traj)
+        # All the flows only allow for one batch index, so we reshape
+        z = T.inverse(tf.reshape(traj, [num_time_samples * batch, FLAGS.d, FLAGS.num_particles, 2]))
+        z = tf.reshape(z, [num_time_samples, batch, FLAGS.d, FLAGS.num_particles, 2])
 
     if FLAGS.visualize:
-        # Add image summary
-        qp_op = qp_plot((traj, z))
-        qp_op = tf.expand_dims(qp_op, axis=0)  # Requires a batch dimension
+        # Add image summary. Must bring batch dimension to front
+        qp_op = tfplot.wrap(qp_plot, name='PhasePlanes', batch=True)(tf.transpose(traj, [1, 0, 2, 3, 4]),
+                                                                     tf.transpose(z, [1, 0, 2, 3, 4]))
+        # qp_op = tf.expand_dims(qp_op, axis=0)  # Requires a batch dimension
         tf.summary.image("q-p", qp_op)
 
     loss = make_circle_loss(z, shift=-hparams.minibatch_size // 2)
@@ -85,13 +89,13 @@ def main(argv):
     tf.contrib.training.train(train_op, logdir=FLAGS.logdir, save_checkpoint_secs=60)
 
 
-@tfplot.autowrap
-def qp_plot(trajs):
+def qp_plot(qp, qp_hat):
     fig, ax = tfplot.subplots(FLAGS.num_particles, FLAGS.d, figsize=(12, 4))
     for dim in range(FLAGS.d):
-        for traj in trajs:
-            q, p = extract_q_p(traj)
-            ax[dim].scatter(q[:, dim, 0, 0], p[:, dim, 0, 0])
+        q, p = extract_q_p(qp)
+        qhat, phat = extract_q_p(qp_hat)
+        ax[dim].scatter(q[:, dim, 0, 0], p[:, dim, 0, 0])
+        ax[dim].scatter(qhat[:, dim, 0, 0], phat[:, dim, 0, 0])
 
     return fig
 
