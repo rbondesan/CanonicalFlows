@@ -39,14 +39,11 @@ tf.flags.DEFINE_boolean('multiple_trajectories', True, 'Train over many differen
 tf.flags.DEFINE_integer("num_stacks_bijectors", 4, "Number of stacks of bijectors.")
 
 # Training flags
-tf.flags.DEFINE_string("logdir",
-                       f"../logging/canonical_flows/{FLAGS.hamiltonian}",
-                       "Directory to write logs.")
 tf.flags.DEFINE_integer('dataset_size', 2**13, 'Set to float("inf") to keep sampling.')
 tf.flags.DEFINE_integer('ckpt_freq', 1000, 'Checkpoint frequency')
 tf.flags.DEFINE_boolean('visualize', True, 'Produce visualization.')
 tf.flags.DEFINE_string("hparams", "", 'Comma separated list of "name=value" pairs e.g. "--hparams=learning_rate=0.3"')
-
+tf.flags.DEFINE_string("logdir", f"../logging/canonical_flows/{FLAGS.hamiltonian}", "Directory to write logs.")
 
 def main(argv):
 
@@ -90,11 +87,11 @@ def main(argv):
 
 @tfplot.autowrap
 def qp_plot(trajs):
-    fig, ax = tfplot.subplots(FLAGS.num_particles, FLAGS.d, figsize=(12, 4))
-    for n in range(FLAGS.d):
+    fig, ax = tfplot.subplots(FLAGS.d, FLAGS.num_particles, figsize=(12, 4))
+    for particle in range(FLAGS.num_particles):
         for traj in trajs:
             q, p = extract_q_p(traj)
-            ax[n].scatter(q[:, n, 0, 0], p[:, n, 0, 0])
+            ax[particle].scatter(q[:, 0, particle, 0], p[:, 0, particle, 0])
 
     return fig
 

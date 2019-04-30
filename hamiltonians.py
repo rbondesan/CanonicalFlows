@@ -30,7 +30,7 @@ def harmonic_oscillator(x):
     q, p = extract_q_p(x)
     return 0.5 * tf.reduce_sum(tf.square(p) + tf.square(q),  axis=[1,2,3])
 
-def kepler(x, k=1.0):
+def kepler(x, k=-1.0):
     """H = 1/2 sum_{i=1}^d p_i^2 + k/r, r = sqrt(sum_{i=1}^d q_i^2).
     Assume x.shape = (N,d,1,2) with d=2,3.
     V(r)=k/r, k>0 repulsive, k<0 attractive."""
