@@ -36,7 +36,7 @@ tf.flags.DEFINE_integer("d", 3, "Space dimension.")
 #                      'Base distribution.')
 # tf.flags.DEFINE_enum('action_dist', 'dirac', ['dirac', 'exponential', 'normal'], 'Distribution of actions.')
 tf.flags.DEFINE_integer('trajectory_duration', 2**10, 'Duration of trajectory.')
-tf.flags.DEFINE_boolean('multiple_trajectories', True, 'Train over many different trajectories.')
+tf.flags.DEFINE_boolean('resample_trajectories', True, 'Train over different trajectories for each batch.')
 tf.flags.DEFINE_integer("num_stacks_bijectors", 4, "Number of stacks of bijectors.")
 
 # Training flags
@@ -74,9 +74,9 @@ def main(argv):
         z = tf.reshape(z, [num_time_samples, batch, FLAGS.d, FLAGS.num_particles, 2])
 
     if FLAGS.visualize:
-        # Add image summary. Must bring batch dimension to front
-        qp_op = tfplot.wrap(qp_plot, name='PhasePlanes', batch=True)(tf.transpose(traj, [1, 0, 2, 3, 4]),
-                                                                     tf.transpose(z, [1, 0, 2, 3, 4]))
+        # Add image summary. Must bring batch dimension to front when wrapping, just take three
+        qp_op = tfplot.wrap(qp_plot, name='PhasePlanes', batch=True)(tf.transpose(traj, [1, 0, 2, 3, 4])[:3],
+                                                                     tf.transpose(z, [1, 0, 2, 3, 4])[:3])
         # qp_op = tf.expand_dims(qp_op, axis=0)  # Requires a batch dimension
         tf.summary.image("q-p", qp_op)
 
@@ -90,16 +90,25 @@ def main(argv):
 
 
 def qp_plot(qp, qp_hat):
-    fig, ax = tfplot.subplots(FLAGS.num_particles, FLAGS.d, figsize=(12, 4))
+
+    fig, ax = tfplot.subplots(FLAGS.num_particles, FLAGS.d, figsize=(12, 4), sharex=True, sharey=True)
     for dim in range(FLAGS.d):
         q, p = extract_q_p(qp)
         qhat, phat = extract_q_p(qp_hat)
-        ax[dim].scatter(q[:, dim, 0, 0], p[:, dim, 0, 0])
-        ax[dim].scatter(qhat[:, dim, 0, 0], phat[:, dim, 0, 0])
+        ax[dim].scatter(qhat[:, dim, 0, 0], phat[:, dim, 0, 0], color="C1")
+        # ax[dim].set(adjustable='box-forced', aspect='equal')
+        ax[dim].set(aspect='equal')
+        ax[dim].scatter(q[:, dim, 0, 0], p[:, dim, 0, 0], color="C0")
 
     return fig
 
-
+def make_initial_x_kepler(eccentricity=np.array([0.6])):
+    batch = eccentricity.shape[0]
+    q1 = np.expand_dims(1 - eccentricity,1)
+    p2 = np.expand_dims(np.sqrt((1+eccentricity) / (1-eccentricity)),1)
+    q2 = q3 = p1 = p3 = np.zeros((batch,1))
+    x = np.reshape(np.concatenate((q1, p1, q2, p2, q3, p3),axis=1), [batch,3,1,2])
+    return x
 
 if __name__ == '__main__':
     tf.app.run(main)
