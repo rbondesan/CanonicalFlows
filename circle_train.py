@@ -87,11 +87,11 @@ def main(argv):
 
 @tfplot.autowrap
 def qp_plot(trajs):
-    fig, ax = tfplot.subplots(FLAGS.d, FLAGS.num_particles, figsize=(12, 4))
-    for particle in range(FLAGS.num_particles):
+    fig, ax = tfplot.subplots(FLAGS.num_particles, FLAGS.d, figsize=(12, 4))
+    for dim in range(FLAGS.d):
         for traj in trajs:
             q, p = extract_q_p(traj)
-            ax[particle].scatter(q[:, 0, particle, 0], p[:, 0, particle, 0])
+            ax[dim].scatter(q[:, dim, 0, 0], p[:, dim, 0, 0])
 
     return fig
 
