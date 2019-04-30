@@ -35,6 +35,7 @@ tf.flags.DEFINE_integer("d", 3, "Space dimension.")
 #                      [f[0] for f in getmembers(data, isclass) if getmodule(f[1]) is data],
 #                      'Base distribution.')
 # tf.flags.DEFINE_enum('action_dist', 'dirac', ['dirac', 'exponential', 'normal'], 'Distribution of actions.')
+tf.flags.DEFINE_boolean('multiple_trajectories', True, 'Train over many different trajectories.')
 tf.flags.DEFINE_integer("num_stacks_bijectors", 4, "Number of stacks of bijectors.")
 
 # Training flags

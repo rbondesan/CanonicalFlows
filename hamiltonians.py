@@ -113,7 +113,7 @@ def closed_toda_3(x):
     V = tf.exp(-2.*y) + tf.exp(y - tf.sqrt(3.)*x) + tf.exp(y + tf.sqrt(3.)*x)
     return tf.reduce_sum(tf.square(p), axis=2) + V
 
-def calogero_moser(x, type, omegasq=1., gsq=1., mu=1.):
+def calogero_moser(x, type='rational', omegasq=1., gsq=1., mu=1.):
     """
     Notation: https://www1.maths.leeds.ac.uk/~siru/papers/p38.pdf (2.38)
     and http://www.scholarpedia.org/article/Calogero-Moser_system
